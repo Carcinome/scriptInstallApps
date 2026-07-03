@@ -21,9 +21,9 @@ def find_rpms(rpm_dir):
     # On renvoie cette liste à celui qui a appelé la fonction.
     return fichiers
 
-
 resultat = find_rpms("C:/testrpms")
 print(resultat)
+
 
 # On ouvre le fichier en mode binaire pour lire ses octets bruts. rb = 'read binary'.
 with open("C:/testrpms/paquet1.rpm", "rb") as f: # With pour fermer le fichier automatiquement.
@@ -33,3 +33,9 @@ with open("C:/testrpms/paquet1.rpm", "rb") as f: # With pour fermer le fichier a
 empreinte = hashlib.sha256(contenu).hexdigest() # Passe ces octets dans la moulinette sha256
 # et .hexdigest() sort le résultat en texte hexadécimal lisible.
 print(empreinte)
+
+
+def calculate_sha256(file_path):
+    with open(file_path, "rb") as f:
+        contenu = f.read()
+    return hashlib.sha256(contenu).hexdigest()
