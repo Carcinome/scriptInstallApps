@@ -1,0 +1,6 @@
+{
+  "rpm_dir": "/opt/install/rpms",
+  "desktop_src_dir": "/opt/install/desktop",
+  "gnome_extensions": ["exemple@exemple.com"],
+  "opt_app_dirs": ["/opt/exemple"]
+}

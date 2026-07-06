@@ -1,47 +1,45 @@
-import glob     # Pour développer le motif *.rpm en liste de fichiers.
-import os       # Pour assembler proprement le chemin (dossier + motif).
-import hashlib  # Boîte à outils de hashing, livrée avec Python.
+"""Orchestrateur : installeur de poste OL9.6 custom.
+
+Ordre d'exécution :
+1. Installation des RPM et dépendances (rpm_installer)
+2. Création des comptes locaux (accounts) - interactif, pas piloté par la config
+3. Copie des raccourcis menu démarrer (shortcuts)
+4. Activation des extensions GNOME (gnome_extensions)
+5. Droits sur les raccourcis (shortcuts, fait en même temps que la copie)
+6. chmod 755 sur /opt (opt_permissions)
+"""
+
+import rpm_installer
+import accounts
+import shortcuts
+import gnome_extensions
+import opt_permissions
+from config import load_config
 
 
-def find_rpms(rpm_dir):
-    # os.path.join colle le dossier et le motif : "/opt/install/rpms" + "*.rpm".
-    # -> "/opt/install/rpms/*.rpm".
-    if not os.path.isdir(rpm_dir):
-        raise FileNotFoundError ("Le dossier n'existe pas: "+ rpm_dir)
-    motif = os.path.join(rpm_dir, "*.rpm")
+def main():
+    cfg = load_config()
 
-    # glob.glob lit le disque et renvoie la liste des chemins qui collent au motif.
-    # -> ["/opt/install/rpms/zabbix-agent.rpm", "/opt/install/rpms/postgresql.rpm", ...]
-    fichiers = glob.glob(motif)
+    rpm_files = rpm_installer.verify_checksums(cfg["rpm_dir"])
+    rpm_installer.install_rpms(rpm_files)
 
-    # Garde-fou : le dossier existe, mais il est peut-être vide.
-    if not fichiers:
-        raise FileNotFoundError ("Le dossier est vide:" + rpm_dir)
+    shortcuts.copy_desktop_files(cfg["desktop_src_dir"])
 
-    # On renvoie cette liste à celui qui a appelé la fonction.
-    return fichiers
+    gnome_extensions.enable_extensions(cfg["gnome_extensions"])
 
-resultat = find_rpms("C:/testrpms")
-print(resultat)
+    for app_dir in cfg["opt_app_dirs"]:
+        opt_permissions.set_opt_permissions(app_dir)
 
-
-# On ouvre le fichier en mode binaire pour lire ses octets bruts. rb = 'read binary'.
-with open("C:/testrpms/paquet1.rpm", "rb") as f: # With pour fermer le fichier automatiquement.
-    contenu = f.read() # Aspire tout le contenu du fichier en octets.
-
-# Calcul de l'empreinte en hexadécimal.
-empreinte = hashlib.sha256(contenu).hexdigest() # Passe ces octets dans la moulinette sha256
-# et .hexdigest() sort le résultat en texte hexadécimal lisible.
-print(empreinte)
+    # Comptes : pas dans la config (pas de mot de passe en clair dans un fichier),
+    # on boucle sur le prompt interactif tant qu'on veut créer un compte de plus.
+    while True:
+        reponse = input("Créer un compte utilisateur ? (o/N) : ").strip().lower()
+        if reponse != "o":
+            break
+        infos = accounts.prompt_user_info()
+        accounts.create_user(**infos)
+        print(f"Compte {infos['username']!r} créé.")
 
 
-def calculate_sha256(file_path):
-    with open(file_path, "rb") as f:
-        contenu = f.read()
-    return hashlib.sha256(contenu).hexdigest()
-
-print(calculate_sha256("C:/testrpms/paquet1.rpm"))
-
-with open("C:/testrpms/SHA256SUMS") as f:
-    for ligne in f:
-        print(repr(ligne))
+if __name__ == "__main__":
+    main()
