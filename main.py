@@ -39,3 +39,9 @@ def calculate_sha256(file_path):
     with open(file_path, "rb") as f:
         contenu = f.read()
     return hashlib.sha256(contenu).hexdigest()
+
+print(calculate_sha256("C:/testrpms/paquet1.rpm"))
+
+with open("C:/testrpms/SHA256SUMS") as f:
+    for ligne in f:
+        print(repr(ligne))
