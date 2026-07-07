@@ -1,5 +1,7 @@
 {
   "rpm_dir": "/opt/install/rpms",
+  "java_src_dir": "/opt/install/java",
+  "java_version": "8.0.392-tem",
   "desktop_src_dir": "/opt/install/desktop",
   "gnome_extensions": ["exemple@exemple.com"],
   "opt_app_dirs": ["/opt/exemple"]
