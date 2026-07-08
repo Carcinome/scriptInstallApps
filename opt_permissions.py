@@ -20,4 +20,4 @@ def set_opt_permissions(app_dir):
 
 
 if __name__ == "__main__":
-    set_opt_permissions("/opt/exemple")
+    set_opt_permissions("/opt/install")
