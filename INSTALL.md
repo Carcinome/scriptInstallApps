@@ -33,15 +33,9 @@ tar czf bundle_install.tar.gz -C /tmp/newbundle opt
 
 Ne copier que ce fichier `bundle_install.tar.gz` (un seul fichier, pas de dossier avec des symlinks) vers l'endroit partagé avec la VM cible.
 
-## 2. Déployer le bundle sur la VM cible
+## 2. Transférer sur la VM cible
 
-Transférer `bundle_install.tar.gz` et le dossier `scriptInstallApps/` (les `.py` + `config.json`) sur la VM cible, puis :
-
-```bash
-sudo python3 deploy_bundle.py /chemin/vers/bundle_install.tar.gz
-```
-
-Ça extrait et vide/recopie `opt/install/rpms`, `opt/install/desktop`, `opt/install/java` — jamais de mélange avec un bundle précédent.
+Transférer `bundle_install.tar.gz` et le dossier `scriptInstallApps/` (les `.py` + `config.json`) sur la VM cible.
 
 ## 3. Adapter config.json
 
@@ -63,17 +57,23 @@ sudo python3 deploy_bundle.py /chemin/vers/bundle_install.tar.gz
 
 ## 4. Lancer l'installation
 
+Un seul point d'entrée, qui déploie le bundle puis lance tout le reste :
+
 ```bash
-sudo python3 main.py
+sudo python3 install.py /chemin/vers/bundle_install.tar.gz
 ```
 
 Ordre d'exécution :
+0. `deploy_bundle.py` : extraction de l'archive, vidage/recopie de `opt/install/{rpms,desktop,java}` (jamais de mélange avec un bundle précédent)
 1. Vérification SHA256 puis installation des RPM (`dnf install -y --disablerepo=*`)
 2. Déploiement du JDK Temurin dans `/opt/java/<version>`, `JAVA_HOME`/`PATH` via `/etc/profile.d/java.sh`
-3. Prompt interactif pour créer un ou plusieurs comptes locaux (username, mot de passe masqué, changement forcé à la prochaine connexion en option) — pas piloté par `config.json`, pas de mot de passe stocké dans un fichier
-4. Copie des `.desktop` vers `/usr/share/applications/` (chmod 644)
-5. Activation des extensions GNOME par défaut système (dconf, `/etc/dconf/db/local.d/`)
-6. `chmod 755` récursif sur les dossiers `/opt/` listés
+3. Assouplissement de `/etc/security/pwquality.conf` (minlen=5, reste à 0, usercheck=0 pour autoriser le username comme mot de passe)
+4. Prompt interactif pour créer un ou plusieurs comptes locaux (username, mot de passe masqué, changement forcé à la prochaine connexion en option) — pas piloté par `config.json`, pas de mot de passe stocké dans un fichier
+5. Copie des `.desktop` vers `/usr/share/applications/` (chmod 644)
+6. Activation des extensions GNOME par défaut système (dconf, `/etc/dconf/db/local.d/`)
+7. `chmod 755` récursif sur les dossiers `/opt/` listés
+
+(`deploy_bundle.py` et `main.py` restent utilisables séparément si besoin de rejouer une seule étape.)
 
 ## 5. Vérifications post-install
 

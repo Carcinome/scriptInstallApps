@@ -3,7 +3,8 @@
 Ordre d'exécution :
 1. Installation des RPM et dépendances (rpm_installer)
 1bis. Déploiement du JDK en tarball, remplace le java par défaut (java_setup)
-2. Création des comptes locaux (accounts) - interactif, pas piloté par la config
+2. Assouplissement de la politique de mot de passe (password_policy)
+2bis. Création des comptes locaux (accounts) - interactif, pas piloté par la config
 3. Copie des raccourcis menu démarrer (shortcuts)
 4. Activation des extensions GNOME (gnome_extensions)
 5. Droits sur les raccourcis (shortcuts, fait en même temps que la copie)
@@ -12,6 +13,7 @@ Ordre d'exécution :
 
 import rpm_installer
 import java_setup
+import password_policy
 import accounts
 import shortcuts
 import gnome_extensions
@@ -26,6 +28,8 @@ def main():
     rpm_installer.install_rpms(rpm_files)
 
     java_setup.install_java(cfg["java_src_dir"], cfg["java_version"])
+
+    password_policy.relax_password_policy()
 
     shortcuts.copy_desktop_files(cfg["desktop_src_dir"])
 
