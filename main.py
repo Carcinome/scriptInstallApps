@@ -1,47 +1,65 @@
-import glob     # Pour développer le motif *.rpm en liste de fichiers.
-import os       # Pour assembler proprement le chemin (dossier + motif).
-import hashlib  # Boîte à outils de hashing, livrée avec Python.
+"""Orchestrator: custom OL9.6 workstation installer.
+Orchestrateur : installeur de poste OL9.6 custom.
+
+Execution order:
+Ordre d'exécution :
+1. Installing RPMs and dependencies (rpm_installer)
+1. Installation des RPM et dépendances (rpm_installer)
+1bis. Deploying the JDK tarball, replaces the default java (java_setup)
+1bis. Déploiement du JDK en tarball, remplace le java par défaut (java_setup)
+2. Relaxing the password policy (password_policy)
+2. Assouplissement de la politique de mot de passe (password_policy)
+2bis. Creating local accounts (accounts) - interactive, not config-driven
+2bis. Création des comptes locaux (accounts) - interactif, pas piloté par la config
+3. Copying start menu shortcuts (shortcuts)
+3. Copie des raccourcis menu démarrer (shortcuts)
+4. Enabling GNOME extensions (gnome_extensions)
+4. Activation des extensions GNOME (gnome_extensions)
+5. Permissions on the shortcuts (shortcuts, done at the same time as the copy)
+5. Droits sur les raccourcis (shortcuts, fait en même temps que la copie)
+6. chmod 755 on /opt (opt_permissions)
+6. chmod 755 sur /opt (opt_permissions)
+"""
+
+import rpm_installer
+import java_setup
+import password_policy
+import accounts
+import shortcuts
+import gnome_extensions
+import opt_permissions
+from config import load_config
 
 
-def find_rpms(rpm_dir):
-    # os.path.join colle le dossier et le motif : "/opt/install/rpms" + "*.rpm".
-    # -> "/opt/install/rpms/*.rpm".
-    if not os.path.isdir(rpm_dir):
-        raise FileNotFoundError ("Le dossier n'existe pas: "+ rpm_dir)
-    motif = os.path.join(rpm_dir, "*.rpm")
+def main():
+    cfg = load_config()
 
-    # glob.glob lit le disque et renvoie la liste des chemins qui collent au motif.
-    # -> ["/opt/install/rpms/zabbix-agent.rpm", "/opt/install/rpms/postgresql.rpm", ...]
-    fichiers = glob.glob(motif)
+    rpm_files = rpm_installer.verify_checksums(cfg["rpm_dir"])
+    rpm_installer.install_rpms(rpm_files)
 
-    # Garde-fou : le dossier existe, mais il est peut-être vide.
-    if not fichiers:
-        raise FileNotFoundError ("Le dossier est vide:" + rpm_dir)
+    java_setup.install_java(cfg["java_src_dir"], cfg["java_version"])
 
-    # On renvoie cette liste à celui qui a appelé la fonction.
-    return fichiers
+    password_policy.relax_password_policy()
 
-resultat = find_rpms("C:/testrpms")
-print(resultat)
+    shortcuts.copy_desktop_files(cfg["desktop_src_dir"])
 
+    gnome_extensions.enable_extensions(cfg["gnome_extensions"])
 
-# On ouvre le fichier en mode binaire pour lire ses octets bruts. rb = 'read binary'.
-with open("C:/testrpms/paquet1.rpm", "rb") as f: # With pour fermer le fichier automatiquement.
-    contenu = f.read() # Aspire tout le contenu du fichier en octets.
+    for app_dir in cfg["opt_app_dirs"]:
+        opt_permissions.set_opt_permissions(app_dir)
 
-# Calcul de l'empreinte en hexadécimal.
-empreinte = hashlib.sha256(contenu).hexdigest() # Passe ces octets dans la moulinette sha256
-# et .hexdigest() sort le résultat en texte hexadécimal lisible.
-print(empreinte)
+    # Accounts: not in the config (no plaintext password in a file),
+    # Comptes : pas dans la config (pas de mot de passe en clair dans un fichier),
+    # we loop on the interactive prompt as long as we want to create one more account.
+    # on boucle sur le prompt interactif tant qu'on veut créer un compte de plus.
+    while True:
+        reponse = input("Créer un compte utilisateur ? (o/N) : ").strip().lower()
+        if reponse != "o":
+            break
+        infos = accounts.prompt_user_info()
+        accounts.create_user(**infos)
+        print(f"Compte {infos['username']!r} créé.")
 
 
-def calculate_sha256(file_path):
-    with open(file_path, "rb") as f:
-        contenu = f.read()
-    return hashlib.sha256(contenu).hexdigest()
-
-print(calculate_sha256("C:/testrpms/paquet1.rpm"))
-
-with open("C:/testrpms/SHA256SUMS") as f:
-    for ligne in f:
-        print(repr(ligne))
+if __name__ == "__main__":
+    main()
