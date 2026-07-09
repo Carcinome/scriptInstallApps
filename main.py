@@ -1,13 +1,23 @@
-"""Orchestrateur : installeur de poste OL9.6 custom.
+"""Orchestrator: custom OL9.6 workstation installer.
+Orchestrateur : installeur de poste OL9.6 custom.
 
+Execution order:
 Ordre d'exécution :
+1. Installing RPMs and dependencies (rpm_installer)
 1. Installation des RPM et dépendances (rpm_installer)
+1bis. Deploying the JDK tarball, replaces the default java (java_setup)
 1bis. Déploiement du JDK en tarball, remplace le java par défaut (java_setup)
+2. Relaxing the password policy (password_policy)
 2. Assouplissement de la politique de mot de passe (password_policy)
+2bis. Creating local accounts (accounts) - interactive, not config-driven
 2bis. Création des comptes locaux (accounts) - interactif, pas piloté par la config
+3. Copying start menu shortcuts (shortcuts)
 3. Copie des raccourcis menu démarrer (shortcuts)
+4. Enabling GNOME extensions (gnome_extensions)
 4. Activation des extensions GNOME (gnome_extensions)
+5. Permissions on the shortcuts (shortcuts, done at the same time as the copy)
 5. Droits sur les raccourcis (shortcuts, fait en même temps que la copie)
+6. chmod 755 on /opt (opt_permissions)
 6. chmod 755 sur /opt (opt_permissions)
 """
 
@@ -38,7 +48,9 @@ def main():
     for app_dir in cfg["opt_app_dirs"]:
         opt_permissions.set_opt_permissions(app_dir)
 
+    # Accounts: not in the config (no plaintext password in a file),
     # Comptes : pas dans la config (pas de mot de passe en clair dans un fichier),
+    # we loop on the interactive prompt as long as we want to create one more account.
     # on boucle sur le prompt interactif tant qu'on veut créer un compte de plus.
     while True:
         reponse = input("Créer un compte utilisateur ? (o/N) : ").strip().lower()

@@ -1,6 +1,9 @@
-"""Module Java : déploiement d'un JDK fourni en tarball (ex. Temurin) dans /opt/java/,
+"""Java module: deploying a JDK shipped as a tarball (e.g. Temurin) into /opt/java/,
+Module Java : déploiement d'un JDK fourni en tarball (ex. Temurin) dans /opt/java/,
+replacing the default java, with JAVA_HOME/PATH set globally.
 en remplacement du java par défaut, avec JAVA_HOME/PATH posés globalement.
 
+Reproduces the manual process that already worked:
 Reprend le process manuel qui marchait déjà :
   sudo mkdir -p /opt/java
   sudo cp -r /opt/offline_bundle/java/<version> /opt/java/
@@ -11,7 +14,9 @@ Reprend le process manuel qui marchait déjà :
 import os
 import shutil
 
-import opt_permissions  # Réutilisé pour le chmod -R 755, déjà écrit au module 6.
+import opt_permissions
+# Reused for the chmod -R 755, already written in module 6.
+# Réutilisé pour le chmod -R 755, déjà écrit au module 6.
 
 
 def copy_java(java_src_dir, version_dirname, install_root="/opt/java"):
@@ -22,6 +27,7 @@ def copy_java(java_src_dir, version_dirname, install_root="/opt/java"):
     os.makedirs(install_root, exist_ok=True)
     dest = os.path.join(install_root, version_dirname)
 
+    # dirs_exist_ok=True: lets the script be rerun without crashing if /opt/java/<version> already exists.
     # dirs_exist_ok=True : relance possible du script sans planter si /opt/java/<version> existe déjà.
     shutil.copytree(src, dest, dirs_exist_ok=True)
 
@@ -35,8 +41,11 @@ def configure_java_env(java_home, profile_path="/etc/profile.d/java.sh"):
         f.write(contenu)
     os.chmod(profile_path, 0o644)
 
+    # No need to "source" it here: /etc/profile.d/*.sh is reloaded
     # Pas besoin de "source" ici : /etc/profile.d/*.sh est de toute façon rechargé
+    # automatically at every new login anyway. A "source" in this script would only
     # automatiquement à chaque nouvelle connexion. Un "source" dans ce script n'aurait
+    # affect the Python process itself, not the users' sessions.
     # d'effet que sur le process Python lui-même, pas sur les sessions des users.
 
 

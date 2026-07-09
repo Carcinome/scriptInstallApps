@@ -1,7 +1,11 @@
-"""Assouplit les règles de complexité de mot de passe (/etc/security/pwquality.conf).
+"""Relaxes the password complexity rules (/etc/security/pwquality.conf).
+Assouplit les règles de complexité de mot de passe (/etc/security/pwquality.conf).
 
+minlen = 5, everything else at 0 (maximum flexibility), usercheck = 0 to allow
 minlen = 5, tout le reste à 0 (souplesse max), usercheck = 0 pour autoriser
+the username as password. Applies when a user changes their own
 le username comme mot de passe. S'applique quand un user change son propre
+password via passwd (so mostly useful together with the accounts module's "force_change").
 mot de passe via passwd (donc surtout utile avec le "force_change" du module comptes).
 """
 
@@ -36,12 +40,16 @@ def relax_password_policy(conf_path="/etc/security/pwquality.conf", reglages=Non
     with open(conf_path) as f:
         lignes = f.readlines()
 
+    # Whatever is left in this dict at the end of the loop = the keys missing from the file,
     # Ce qui reste dans ce dict à la fin de la boucle = les clés absentes du fichier,
+    # to be appended at the end.
     # à ajouter à la fin.
     restants = dict(reglages)
 
     for i, ligne in enumerate(lignes):
+        # A pwquality.conf line looks like "minlen = 8" or "# minlen = 8" (commented
         # Une ligne pwquality.conf ressemble à "minlen = 8" ou "# minlen = 8" (commentée
+        # out by default). We spot the key whether it's commented or active.
         # par défaut). On repère la clé peu importe si elle est commentée ou active.
         m = re.match(r"^\s*#?\s*(\w+)\s*=", ligne)
         if m and m.group(1) in restants:

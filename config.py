@@ -1,4 +1,5 @@
-"""Chargement du fichier de config qui pilote l'orchestrateur (main.py)."""
+"""Loading the config file that drives the orchestrator (main.py).
+Chargement du fichier de config qui pilote l'orchestrateur (main.py)."""
 
 import json
 import os
