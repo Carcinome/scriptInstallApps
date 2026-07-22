@@ -21,6 +21,8 @@ Ordre d'exécution :
 6. chmod 755 sur /opt (opt_permissions)
 """
 
+import os
+
 import rpm_installer
 import java_setup
 import password_policy
@@ -37,7 +39,19 @@ def run_provisioning(cfg):
 
     java_setup.install_java(cfg["java_src_dir"], cfg["java_version"])
 
-    password_policy.relax_password_policy()
+    # OL96_HARDENING_PROFILE : positionnee par le firstboot de l'ISO respin
+    # quand un profil CIS/STIG a ete choisi (spoke Anaconda "Security Policy").
+    # Absente (usage manuel historique) ou "none" -> comportement inchange.
+    # Un profil actif signifie qu'OpenSCAP a deja durci pwquality.conf ; on
+    # n'ecrase pas ce reglage avec l'assouplissement habituel.
+    hardening_profile = os.environ.get("OL96_HARDENING_PROFILE", "none")
+    if hardening_profile in ("", "none"):
+        password_policy.relax_password_policy()
+    else:
+        print(
+            f"Profil de durcissement '{hardening_profile}' actif : "
+            "pwquality.conf laissé tel que remédié par OpenSCAP."
+        )
 
     shortcuts.copy_desktop_files(cfg["desktop_src_dir"])
 
