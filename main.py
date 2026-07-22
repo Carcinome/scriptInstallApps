@@ -31,9 +31,7 @@ import opt_permissions
 from config import load_config
 
 
-def main():
-    cfg = load_config()
-
+def run_provisioning(cfg):
     rpm_files = rpm_installer.verify_checksums(cfg["rpm_dir"])
     rpm_installer.install_rpms(rpm_files)
 
@@ -48,6 +46,8 @@ def main():
     for app_dir in cfg["opt_app_dirs"]:
         opt_permissions.set_opt_permissions(app_dir)
 
+
+def run_accounts():
     # Accounts: not in the config (no plaintext password in a file),
     # Comptes : pas dans la config (pas de mot de passe en clair dans un fichier),
     # we loop on the interactive prompt as long as we want to create one more account.
@@ -59,6 +59,16 @@ def main():
         infos = accounts.prompt_user_info()
         accounts.create_user(**infos)
         print(f"Compte {infos['username']!r} créé.")
+
+
+def main(phase="all"):
+    cfg = load_config()
+
+    if phase in ("all", "provision"):
+        run_provisioning(cfg)
+
+    if phase in ("all", "accounts"):
+        run_accounts()
 
 
 if __name__ == "__main__":
