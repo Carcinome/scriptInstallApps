@@ -90,3 +90,4 @@ dconf read /org/gnome/shell/enabled-extensions
 - `--allowerasing` peut faire proposer à dnf de désinstaller des paquets protégés (`dnf`, `yum`) si le lot de RPM contient des doublons de composants système — signe qu'il faut nettoyer le lot, pas forcer le flag.
 - `dnf download --alldeps` ramène des dépendances déjà satisfaites en dernière version du dépôt distant (ex. `oraclelinux-release` qui saute de 9.6 à 9.7/9.8). Toujours `--resolve` seul, avec `-x "oraclelinux-release*"` en filet de sécurité.
 - Ne jamais construire/extraire une arborescence avec des liens symboliques (JDK, etc.) directement sur un partage `/mnt/hgfs/...` : ces partages VMware ne supportent pas les symlinks.
+- Penser impérativement à faire un sudo chmod 644 sur le raccourci applicatif dans /usr/share/application/*.desktop.
