@@ -203,11 +203,11 @@ print(sortie)  # stdout de dnf : liste des paquets installés, tailles, etc.
 **Syntaxe**
 ```python
 prompt_user_info() -> dict
-# -> {"username": str, "password": str, "force_change": bool}
+# -> {"username": str, "password": str, "force_change": bool, "add_to_wheel": bool}
 ```
 
 **Utilité**
-Pose trois questions à l'opérateur dans le terminal (nom d'utilisateur, mot de passe temporaire, forcer le changement au prochain login) et renvoie les réponses sous forme de dict, prêt à être passé à `create_user(**infos)`.
+Pose quatre questions à l'opérateur dans le terminal (nom d'utilisateur, mot de passe temporaire, forcer le changement au prochain login, ajout au groupe `wheel`) et renvoie les réponses sous forme de dict, prêt à être passé à `create_user(**infos)`.
 
 **Exemple**
 ```python
@@ -215,8 +215,9 @@ infos = prompt_user_info()
 # Nom d'utilisateur : jdupont
 # Mot de passe temporaire : (saisie invisible)
 # Forcer le changement de mot de passe à la prochaine connexion ? (1 = oui, Entrée = non) : 1
+# Ajouter cet utilisateur au groupe wheel (sudo) ? (1 = oui, Entrée = non) : 1
 print(infos)
-# {"username": "jdupont", "password": "...", "force_change": True}
+# {"username": "jdupont", "password": "...", "force_change": True, "add_to_wheel": True}
 ```
 
 **Erreurs à ne pas faire**
@@ -228,35 +229,38 @@ print(infos)
 
 ---
 
-### `create_user(username, password, force_change=False)`
+### `create_user(username, password, force_change=False, add_to_wheel=False)`
 
 **Syntaxe**
 ```python
-create_user(username: str, password: str, force_change: bool = False) -> None
+create_user(username: str, password: str, force_change: bool = False, add_to_wheel: bool = False) -> None
 ```
 
 **Utilité**
-Crée un compte local Linux : `useradd` (avec tous les défauts système), `chpasswd` (mot de passe initial), et `chage -d 0` si `force_change=True` (le compte devra changer son mot de passe à la prochaine connexion).
+Crée un compte local Linux : `useradd` (avec tous les défauts système), `chpasswd` (mot de passe initial), `chage -d 0` si `force_change=True` (le compte devra changer son mot de passe à la prochaine connexion), et `usermod -aG wheel` si `add_to_wheel=True` (accès sudo).
 
 **Commandes système utilisées**
 ```bash
 useradd <username>
-chpasswd            # avec "username:password\n" sur stdin
-chage -d 0 <username>  # seulement si force_change=True
+chpasswd                    # avec "username:password\n" sur stdin
+chage -d 0 <username>       # seulement si force_change=True
+usermod -aG wheel <username>  # seulement si add_to_wheel=True
 ```
 
 **Exemple**
 ```python
-create_user("jdupont", "TempPass123", force_change=True)
-# Crée /home/jdupont, pose le mot de passe, force le renouvellement au prochain login.
+create_user("jdupont", "TempPass123", force_change=True, add_to_wheel=True)
+# Crée /home/jdupont, pose le mot de passe, force le renouvellement au prochain login,
+# et ajoute jdupont au groupe wheel (accès sudo).
 ```
 
 **Erreurs à ne pas faire**
 - Passer le mot de passe en argument de `chpasswd` (ex. `["chpasswd", f"{username}:{password}"]`) au lieu de le passer via `input=` (stdin) : un argument de commande est visible par n'importe quel utilisateur du système via `ps aux` ou `/proc/<pid>/cmdline` pendant toute la durée d'exécution du process, même bref. Passer par stdin évite complètement cette fuite.
 - Rappeler `create_user` deux fois avec le même `username` : `useradd` échouera avec "l'utilisateur existe déjà" et lèvera une `RuntimeError` — c'est voulu (pas de silent no-op qui masquerait une erreur d'opérateur), mais ça veut dire que ce script n'est pas idempotent sur la création de compte, contrairement à `java_setup.copy_java` par exemple.
+- Utiliser `usermod -G wheel <username>` (sans le `-a`) en pensant que ça fait la même chose : sans `-a` (append), `-G` **remplace entièrement** la liste des groupes secondaires de l'utilisateur. Sur un compte tout juste créé ça ne change rien puisqu'il n'a pas encore d'autre groupe secondaire, mais c'est une commande dangereuse à retenir telle quelle : sur un compte existant avec d'autres groupes, `-G` sans `-a` les supprimerait tous sauf `wheel`.
 
 **Pourquoi ainsi**
-Aucune option `useradd` personnalisée (pas de `-m`, `-s`, `-G`...) : on a délibérément gardé les valeurs par défaut du système (décision prise en cours de route avec l'utilisateur) plutôt que d'ajouter de la configurabilité non demandée. `chage -d 0` plutôt que `passwd -e` : les deux forcent un changement de mot de passe au prochain login, mais `chage -d 0` est la commande "propre" pour manipuler uniquement la date du dernier changement sans toucher à d'autres attributs du compte.
+Aucune option `useradd` personnalisée (pas de `-m`, `-s`, `-G`...) : on a délibérément gardé les valeurs par défaut du système (décision prise en cours de route avec l'utilisateur) plutôt que d'ajouter de la configurabilité non demandée. `chage -d 0` plutôt que `passwd -e` : les deux forcent un changement de mot de passe au prochain login, mais `chage -d 0` est la commande "propre" pour manipuler uniquement la date du dernier changement sans toucher à d'autres attributs du compte. `usermod -aG wheel` en étape séparée après `useradd` plutôt que `useradd -G wheel` dès la création : ça garde `useradd` générique (toujours le même appel, sans branchement conditionnel dedans) et isole la logique "wheel ou pas" dans son propre bloc, à l'image de `force_change`.
 
 ---
 
