@@ -33,14 +33,20 @@ def prompt_user_info():
     ).strip()
     force_change = reponse == "1"
 
+    reponse = input(
+        "Ajouter cet utilisateur au groupe wheel (sudo) ? (1 = oui, Entrée = non) : "
+    ).strip()
+    add_to_wheel = reponse == "1"
+
     return {
         "username": username,
         "password": password,
         "force_change": force_change,
+        "add_to_wheel": add_to_wheel,
     }
 
 
-def create_user(username, password, force_change=False):
+def create_user(username, password, force_change=False, add_to_wheel=False):
     if os.geteuid() != 0:
         raise PermissionError("Création de compte: il faut être root (sudo).")
 
@@ -75,6 +81,20 @@ def create_user(username, password, force_change=False):
         if resultat.returncode != 0:
             raise RuntimeError(
                 f"Échec de chage pour {username} (code {resultat.returncode}):\n{resultat.stderr}"
+            )
+
+    if add_to_wheel:
+        # -aG appends to the user's supplementary groups without removing the existing
+        # -aG ajoute aux groupes secondaires de l'user sans retirer les
+        # ones. -G alone would replace the whole group list instead of adding to it.
+        # existants. -G seul remplacerait toute la liste de groupes au lieu de compléter.
+        resultat = subprocess.run(
+            ["usermod", "-aG", "wheel", username], capture_output=True, text=True
+        )
+        if resultat.returncode != 0:
+            raise RuntimeError(
+                f"Échec de l'ajout au groupe wheel pour {username} "
+                f"(code {resultat.returncode}):\n{resultat.stderr}"
             )
 
 
