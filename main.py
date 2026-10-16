@@ -3,8 +3,6 @@ Orchestrateur : installeur de poste OL9.6 custom.
 
 Execution order:
 Ordre d'exécution :
-0. Installing LibreOffice and its full dependency set, first, so it matches the base OS (rpm_installer)
-0. Installation de LibreOffice et de tout son jeu de dépendances, en premier, pour coller à l'OS de base (rpm_installer)
 1. Installing RPMs and dependencies (rpm_installer)
 1. Installation des RPM et dépendances (rpm_installer)
 1bis. Deploying the JDK tarball, replaces the default java (java_setup)
@@ -24,7 +22,6 @@ Ordre d'exécution :
 """
 
 import rpm_installer
-import libreoffice_setup
 import java_setup
 import password_policy
 import accounts
@@ -36,12 +33,6 @@ from config import load_config
 
 def main():
     cfg = load_config()
-
-    # LibreOffice goes first, in its own dnf transaction: its RPMs were downloaded
-    # LibreOffice passe en premier, dans sa propre transaction dnf : ses RPM ont été téléchargés
-    # from the OL9.6 install ISO, so they match the virgin OS exactly.
-    # depuis l'ISO d'installation OL9.6, donc ils collent exactement à l'OS vierge.
-    libreoffice_setup.install_libreoffice(cfg["libreoffice_rpm_dir"])
 
     rpm_files = rpm_installer.verify_checksums(cfg["rpm_dir"])
     rpm_installer.install_rpms(rpm_files)
