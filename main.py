@@ -3,6 +3,8 @@ Orchestrateur : installeur de poste OL9.6 custom.
 
 Execution order:
 Ordre d'exécution :
+0. Installing LibreOffice and its full dependency set, first, so it matches the base OS (libreoffice_setup)
+0. Installation de LibreOffice et de tout son jeu de dépendances, en premier, pour coller à l'OS de base (libreoffice_setup)
 1. Installing RPMs and dependencies (rpm_installer)
 1. Installation des RPM et dépendances (rpm_installer)
 1bis. Deploying the JDK tarball, replaces the default java (java_setup)
@@ -21,7 +23,10 @@ Ordre d'exécution :
 6. chmod 755 sur /opt (opt_permissions)
 """
 
+import os
+
 import rpm_installer
+import libreoffice_setup
 import java_setup
 import password_policy
 import accounts
@@ -31,15 +36,31 @@ import opt_permissions
 from config import load_config
 
 
-def main():
-    cfg = load_config()
+def run_provisioning(cfg):
+    # LibreOffice goes first, in its own dnf transaction: its RPMs were downloaded
+    # LibreOffice passe en premier, dans sa propre transaction dnf : ses RPM ont été téléchargés
+    # from the OL9.6 install ISO, so they match the virgin OS exactly.
+    # depuis l'ISO d'installation OL9.6, donc ils collent exactement à l'OS vierge.
+    libreoffice_setup.install_libreoffice(cfg["libreoffice_rpm_dir"])
 
     rpm_files = rpm_installer.verify_checksums(cfg["rpm_dir"])
     rpm_installer.install_rpms(rpm_files)
 
     java_setup.install_java(cfg["java_src_dir"], cfg["java_version"])
 
-    password_policy.relax_password_policy()
+    # OL96_HARDENING_PROFILE : positionnee par le firstboot de l'ISO respin
+    # quand un profil CIS/STIG a ete choisi (spoke Anaconda "Security Policy").
+    # Absente (usage manuel historique) ou "none" -> comportement inchange.
+    # Un profil actif signifie qu'OpenSCAP a deja durci pwquality.conf ; on
+    # n'ecrase pas ce reglage avec l'assouplissement habituel.
+    hardening_profile = os.environ.get("OL96_HARDENING_PROFILE", "none")
+    if hardening_profile in ("", "none"):
+        password_policy.relax_password_policy()
+    else:
+        print(
+            f"Profil de durcissement '{hardening_profile}' actif : "
+            "pwquality.conf laissé tel que remédié par OpenSCAP."
+        )
 
     shortcuts.copy_desktop_files(cfg["desktop_src_dir"])
 
@@ -48,6 +69,8 @@ def main():
     for app_dir in cfg["opt_app_dirs"]:
         opt_permissions.set_opt_permissions(app_dir)
 
+
+def run_accounts():
     # Accounts: not in the config (no plaintext password in a file),
     # Comptes : pas dans la config (pas de mot de passe en clair dans un fichier),
     # we loop on the interactive prompt as long as we want to create one more account.
@@ -59,6 +82,16 @@ def main():
         infos = accounts.prompt_user_info()
         accounts.create_user(**infos)
         print(f"Compte {infos['username']!r} créé.")
+
+
+def main(phase="all"):
+    cfg = load_config()
+
+    if phase in ("all", "provision"):
+        run_provisioning(cfg)
+
+    if phase in ("all", "accounts"):
+        run_accounts()
 
 
 if __name__ == "__main__":
