@@ -13,6 +13,9 @@ import hashlib
 import subprocess
 # For launching dnf the same way we would from the command line.
 # Pour lancer dnf comme on le ferait en ligne de commande.
+import sys
+# To read the arguments typed after the script name (sys.argv).
+# Pour lire les arguments tapés après le nom du script (sys.argv).
 
 
 def find_rpms(rpm_dir):
@@ -138,11 +141,14 @@ def install_rpms(rpm_files):
 
 
 if __name__ == "__main__":
-    resultat = find_rpms("C:/testrpms")
-    print(resultat)
+    # Standalone use: verify then install any folder of RPMs, e.g. the LibreOffice one.
+    # Usage autonome : vérifier puis installer n'importe quel dossier de RPM, ex. celui de LibreOffice.
+    # Usage: sudo python3 rpm_installer.py /opt/install/libreoffice
+    # Usage : sudo python3 rpm_installer.py /opt/install/libreoffice
+    if len(sys.argv) != 2:
+        print("Usage: sudo python3 rpm_installer.py /chemin/vers/dossier_rpm")
+        sys.exit(1)
 
-    print(calculate_sha256("C:/testrpms/paquet1.rpm"))
-
-    with open("C:/testrpms/SHA256SUMS") as f:
-        for ligne in f:
-            print(repr(ligne))
+    rpm_files = verify_checksums(sys.argv[1])
+    install_rpms(rpm_files)
+    print(f"{len(rpm_files)} RPM installés depuis {sys.argv[1]}.")

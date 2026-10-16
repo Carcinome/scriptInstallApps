@@ -189,7 +189,14 @@ print(sortie)  # stdout de dnf : liste des paquets installés, tailles, etc.
 
 **Erreurs à ne pas faire**
 - Ajouter `--allowerasing` sans comprendre pourquoi `dnf` en a besoin : ce flag autorise `dnf` à **désinstaller** des paquets déjà présents pour résoudre la transaction. Si le dossier `rpm_dir` contient des doublons de composants système (mauvaise version d'une lib déjà installée), `dnf` peut proposer de désinstaller des paquets protégés (`dnf`, `yum` eux-mêmes) — signe qu'il faut nettoyer le lot de RPM, pas forcer le flag. Voir l'incident documenté dans `INSTALL.md`.
-- Ajouter `--alldeps` au moment du **téléchargement** (`dnf download`) en pensant que c'est équivalent à "prends toutes les dépendances nécessaires" : ce flag force le téléchargement de **toutes** les dépendances, y compris celles déjà satisfaites localement, et va chercher la dernière version disponible sur le dépôt distant — ce qui peut ramener des centaines de paquets système non désirés (`oraclelinux-release` compris). `install_rpms` elle-même n'a pas ce problème (elle ne télécharge rien), mais le bundle qu'on lui donne en amont doit avoir été construit sans `--alldeps`.
+- Ajouter `--alldeps` au moment du **téléchargement** (`dnf download`) depuis un dépôt **en ligne** : ce flag force le téléchargement de **toutes** les dépendances, y compris celles déjà satisfaites localement, et va chercher la dernière version disponible sur le dépôt distant — ce qui peut ramener des centaines de paquets système non désirés (`oraclelinux-release` compris). `install_rpms` elle-même n'a pas ce problème (elle ne télécharge rien), mais le lot qu'on lui donne doit avoir été construit sans `--alldeps` depuis un dépôt en ligne. Exception : le lot LibreOffice est téléchargé avec `--alldeps` depuis l'**ISO 9.6** montée en dépôt local, dont les versions sont exactement celles de l'OS vierge.
+
+**Usage en ligne de commande**
+`rpm_installer.py` peut aussi se lancer seul sur n'importe quel dossier de RPM (avec son `SHA256SUMS`), sans passer par `main.py` :
+```bash
+sudo python3 rpm_installer.py /opt/install/libreoffice
+```
+Le bloc `if __name__ == "__main__":` lit le chemin dans `sys.argv[1]` (le premier mot tapé après le nom du script), appelle `verify_checksums` puis `install_rpms`. C'est ce qui permet de déployer LibreOffice hors bundle sur un poste déjà en production.
 
 **Pourquoi ainsi**
 `subprocess.run(..., capture_output=True, text=True)` plutôt que `os.system()` : on récupère `stdout`/`stderr` en tant que texte pour construire un message d'erreur exploitable, et on évite les problèmes d'injection shell qu'`os.system()` peut introduire si un chemin de fichier contient des caractères spéciaux (`os.system` passe par un shell, `subprocess.run` avec une liste d'arguments non).
@@ -586,6 +593,7 @@ relax_password_policy()
 **Syntaxe**
 ```python
 DESTINATIONS: dict[str, str] = {
+    "libreoffice": "/opt/install/libreoffice",
     "rpms": "/opt/install/rpms",
     "desktop": "/opt/install/desktop",
     "java": "/opt/install/java",
@@ -666,7 +674,7 @@ main() -> None
 ```
 
 **Utilité**
-L'orchestrateur final : charge `config.json`, puis enchaîne dans l'ordre RPM → Java → politique de mot de passe → comptes (interactif) → shortcuts → extensions GNOME → permissions `/opt`.
+L'orchestrateur final : charge `config.json`, puis enchaîne dans l'ordre LibreOffice (lot RPM séparé, en premier, sa propre transaction `dnf`) → RPM habituels → Java → politique de mot de passe → shortcuts → extensions GNOME → permissions `/opt` → comptes (interactif).
 
 **Exemple**
 ```python

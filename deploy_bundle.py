@@ -3,6 +3,7 @@ Script à part : déploie une tar archive "all in one" vers les dossiers attendu
 
 Expected structure inside the archive (tarfile auto-detects compressed or not):
 Structure attendue dans l'archive (tarfile détecte tout seul compressé ou pas) :
+  opt/install/libreoffice/*.rpm + SHA256SUMS
   opt/install/rpms/*.rpm + SHA256SUMS
   opt/install/desktop/*.desktop
   opt/install/java/<version>/
@@ -20,6 +21,7 @@ import tempfile
 # Subfolders expected inside the archive, under "opt/install/", and their final destination.
 # Sous-dossiers attendus dans l'archive, sous "opt/install/", et leur destination finale.
 DESTINATIONS = {
+    "libreoffice": "/opt/install/libreoffice",
     "rpms": "/opt/install/rpms",
     "desktop": "/opt/install/desktop",
     "java": "/opt/install/java",

@@ -9,7 +9,52 @@
 
 ## 1. Construire le bundle sur la VM de téléchargement
 
-Télécharger les RPM + dépendances réellement nécessaires (jamais `--alldeps`, qui ramène des paquets déjà satisfaits en dernière version distante) :
+Le bundle contient **deux lots de RPM séparés**, chacun avec son propre `SHA256SUMS` :
+
+- `libreoffice/` : LibreOffice et tout son jeu de dépendances (`--alldeps`), pris **depuis l'ISO d'installation**.
+- `rpms/` : le reste (wireshark, jq, xterm, inotify-tools, gettext, java headless), pris depuis les dépôts en ligne.
+
+### 1a. Lot LibreOffice (depuis l'ISO, avec `--alldeps`)
+
+On utilise l'ISO comme dépôt local, pas les dépôts en ligne. Raison : les dépôts en ligne OL9 avancent en continu (9.7, 9.8...), alors que la cible est en 9.6. Avec `--alldeps`, ils ramèneraient des versions plus récentes que l'OS de base et on retomberait dans les conflits `dnf` déjà vus. L'ISO contient exactement les versions 9.6, donc `--alldeps` y est sans risque.
+
+```bash
+sudo mkdir -p /mnt/iso
+sudo mount -o loop,ro /chemin/vers/OracleLinux-R9-U6-x86_64-dvd.iso /mnt/iso
+
+sudo tee /etc/yum.repos.d/iso.repo > /dev/null <<'EOF'
+[iso-baseos]
+name=OL9.6 ISO BaseOS
+baseurl=file:///mnt/iso/BaseOS
+enabled=1
+gpgcheck=1
+gpgkey=file:///mnt/iso/RPM-GPG-KEY-oracle
+
+[iso-appstream]
+name=OL9.6 ISO AppStream
+baseurl=file:///mnt/iso/AppStream
+enabled=1
+gpgcheck=1
+gpgkey=file:///mnt/iso/RPM-GPG-KEY-oracle
+EOF
+
+sudo dnf download --resolve --alldeps --disablerepo='*' --enablerepo='iso-*' \
+  --destdir=/tmp/newbundle/libreoffice \
+  libreoffice-writer libreoffice-calc libreoffice-impress libreoffice-draw \
+  libreoffice-langpack-fr libreoffice-help-fr hunspell-fr hyphen-fr mythes-fr
+cd /tmp/newbundle/libreoffice
+sha256sum *.rpm | sudo tee SHA256SUMS > /dev/null
+```
+
+**Vérification avant d'expédier** (sur cette VM vierge, rien n'est installé) : un essai à blanc doit lister uniquement des paquets à installer, aucune ligne `Removing` ni `Downgrading`.
+
+```bash
+sudo dnf install --assumeno --disablerepo='*' /tmp/newbundle/libreoffice/*.rpm
+```
+
+### 1b. Lot RPM habituel (depuis les dépôts en ligne, sans `--alldeps`)
+
+Télécharger les RPM + dépendances réellement nécessaires (jamais `--alldeps` ici, car ce lot vient des dépôts en ligne) :
 
 ```bash
 sudo dnf download --resolve --destdir=/tmp/newbundle/rpms -x "oraclelinux-release*" \
@@ -18,10 +63,13 @@ cd /tmp/newbundle/rpms
 sha256sum *.rpm > SHA256SUMS
 ```
 
+### 1c. Assembler et archiver
+
 Rassembler la structure finale **dans un dossier natif du système de fichiers** (jamais directement sur un partage `/mnt/hgfs/...` : ce type de partage ne supporte pas les liens symboliques, et le JDK en contient) :
 
 ```bash
 mkdir -p /tmp/newbundle/opt/install
+mv /tmp/newbundle/libreoffice /tmp/newbundle/opt/install/libreoffice
 mv /tmp/newbundle/rpms /tmp/newbundle/opt/install/rpms
 mkdir -p /tmp/newbundle/opt/install/desktop
 cp /chemin/vers/*.desktop /tmp/newbundle/opt/install/desktop/
@@ -43,6 +91,7 @@ Transférer `bundle_install.tar.gz` et le dossier `scriptInstallApps/` (les `.py
 
 ```json
 {
+  "libreoffice_rpm_dir": "/opt/install/libreoffice",
   "rpm_dir": "/opt/install/rpms",
   "java_src_dir": "/opt/install/java",
   "java_version": "8.0.392-tem",
@@ -64,7 +113,8 @@ sudo python3 install.py /chemin/vers/bundle_install.tar.gz
 ```
 
 Ordre d'exécution :
-0. `deploy_bundle.py` : extraction de l'archive, vidage/recopie de `opt/install/{rpms,desktop,java}` (jamais de mélange avec un bundle précédent)
+0. `deploy_bundle.py` : extraction de l'archive, vidage/recopie de `opt/install/{libreoffice,rpms,desktop,java}` (jamais de mélange avec un bundle précédent)
+0bis. Vérification SHA256 puis installation de LibreOffice, en premier et dans sa propre transaction `dnf`
 1. Vérification SHA256 puis installation des RPM (`dnf install -y --disablerepo=*`)
 2. Déploiement du JDK Temurin dans `/opt/java/<version>`, `JAVA_HOME`/`PATH` via `/etc/profile.d/java.sh`
 3. Assouplissement de `/etc/security/pwquality.conf` (minlen=5, reste à 0, usercheck=0 pour autoriser le username comme mot de passe)
@@ -75,11 +125,22 @@ Ordre d'exécution :
 
 (`deploy_bundle.py` et `main.py` restent utilisables séparément si besoin de rejouer une seule étape.)
 
+### Installer LibreOffice seul, hors bundle (poste déjà déployé)
+
+Copier le dossier `libreoffice/` (RPM + `SHA256SUMS`), `libreoffice_setup.py` et `rpm_installer.py` sur le poste, puis :
+
+```bash
+sudo python3 libreoffice_setup.py /chemin/vers/libreoffice
+```
+
+Ça vérifie les empreintes, lance l'installation `dnf`, puis contrôle avec `rpm -q` que `libreoffice-core`, `-writer`, `-calc` et `-impress` sont bien présents, comme le fait `main.py`. Sans argument, le dossier par défaut est `/opt/install/libreoffice`. (`rpm_installer.py <dossier>` fait la même chose pour n'importe quel autre lot de RPM, mais sans le contrôle final.) Sur un poste déjà déployé, faire d'abord un essai à blanc sur un seul poste (`sudo dnf install --assumeno --disablerepo='*' /chemin/vers/libreoffice/*.rpm`) : le lot vient de l'ISO 9.6 alors que ces postes ont reçu quelques paquets plus récents, il faut s'assurer que `dnf` ne propose aucun `Removing` ni `Downgrading`.
+
 ## 5. Vérifications post-install
 
 ```bash
 java -version                          # doit pointer sur le Temurin 8.0.392
 rpm -q wireshark jq xterm gettext      # paquets bien installés
+rpm -q libreoffice-writer libreoffice-calc libreoffice-impress   # LibreOffice installé
 ls -l /usr/share/applications/*.desktop
 dconf read /org/gnome/shell/enabled-extensions
 ```
@@ -88,6 +149,7 @@ dconf read /org/gnome/shell/enabled-extensions
 
 - `sudo cmd > fichier` : la redirection `>` n'est **pas** exécutée par sudo, elle s'exécute avec les droits du shell courant. Utiliser `cmd | sudo tee fichier` à la place.
 - `--allowerasing` peut faire proposer à dnf de désinstaller des paquets protégés (`dnf`, `yum`) si le lot de RPM contient des doublons de composants système — signe qu'il faut nettoyer le lot, pas forcer le flag.
-- `dnf download --alldeps` ramène des dépendances déjà satisfaites en dernière version du dépôt distant (ex. `oraclelinux-release` qui saute de 9.6 à 9.7/9.8). Toujours `--resolve` seul, avec `-x "oraclelinux-release*"` en filet de sécurité.
+- `dnf download --alldeps` ramène des dépendances déjà satisfaites en dernière version du dépôt distant (ex. `oraclelinux-release` qui saute de 9.6 à 9.7/9.8). Avec les dépôts en ligne, toujours `--resolve` seul, avec `-x "oraclelinux-release*"` en filet de sécurité. `--alldeps` n'est sûr que si le dépôt est l'ISO 9.6 elle-même (lot LibreOffice).
+- Un paquet oublié dans le bundle ne se voit pas à l'installation (tout passe) mais sur le terrain. Avant d'expédier, relire la liste des paquets demandés et vérifier avec `rpm -q` sur une VM vierge.
 - Ne jamais construire/extraire une arborescence avec des liens symboliques (JDK, etc.) directement sur un partage `/mnt/hgfs/...` : ces partages VMware ne supportent pas les symlinks.
 - Penser impérativement à faire un sudo chmod 644 sur le raccourci applicatif dans `/usr/share/application/*.desktop`.
