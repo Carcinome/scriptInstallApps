@@ -112,16 +112,44 @@ Un seul point d'entrée, qui déploie le bundle puis lance tout le reste :
 sudo python3 install.py /chemin/vers/bundle_install.tar.gz
 ```
 
-Ordre d'exécution :
+### Lancer en deux phases (option `--phase`)
+
+Par défaut, `install.py` fait tout d'un coup (`--phase all`). On peut aussi séparer la partie sans interaction de la création de comptes, qui demande quelqu'un devant le clavier :
+
+```bash
+sudo python3 install.py /chemin/vers/bundle_install.tar.gz --phase provision
+```
+
+Déploie le bundle puis fait toute l'installation **sans poser de question** (LibreOffice, RPM, Java, mots de passe, raccourcis, GNOME, droits).
+
+```bash
+sudo python3 install.py /chemin/vers/bundle_install.tar.gz --phase accounts
+```
+
+Lance **seulement** la création de comptes, sans toucher au bundle (rien n'est vidé ni recopié).
+
+Ce découpage sert au premier démarrage de l'ISO personnalisée : le reste tourne sans surveillance, et les comptes se créent à la console.
+
+### Poste avec un profil de durcissement (OpenSCAP)
+
+Si la variable d'environnement `OL96_HARDENING_PROFILE` est définie avec un nom de profil (CIS, STIG...), l'étape 4 ci-dessous (assouplissement de `pwquality.conf`) est **sautée** : OpenSCAP a déjà durci ce fichier et l'installeur ne l'écrase pas. Variable absente ou égale à `none` : comportement habituel.
+
+Ordre d'exécution (c'est l'ordre réel de `main.py`) :
 0. `deploy_bundle.py` : extraction de l'archive, vidage/recopie de `opt/install/{libreoffice,rpms,desktop,java}` (jamais de mélange avec un bundle précédent)
-0bis. Vérification SHA256 puis installation de LibreOffice, en premier et dans sa propre transaction `dnf`
-1. Vérification SHA256 puis installation des RPM (`dnf install -y --disablerepo=*`)
-2. Déploiement du JDK Temurin dans `/opt/java/<version>`, `JAVA_HOME`/`PATH` via `/etc/profile.d/java.sh`
-3. Assouplissement de `/etc/security/pwquality.conf` (minlen=5, reste à 0, usercheck=0 pour autoriser le username comme mot de passe)
-4. Prompt interactif pour créer un ou plusieurs comptes locaux (username, mot de passe masqué, changement forcé à la prochaine connexion en option) — pas piloté par `config.json`, pas de mot de passe stocké dans un fichier
+
+Puis la partie sans interaction (`--phase provision`) :
+
+1. Vérification SHA256 puis installation de LibreOffice, en premier et dans sa propre transaction `dnf`, avec contrôle final `rpm -q`
+2. Vérification SHA256 puis installation des RPM (`dnf install -y --disablerepo=*`)
+3. Déploiement du JDK Temurin dans `/opt/java/<version>`, `JAVA_HOME`/`PATH` via `/etc/profile.d/java.sh`
+4. Assouplissement de `/etc/security/pwquality.conf` (minlen=5, reste à 0, usercheck=0 pour autoriser le username comme mot de passe), sauf si un profil de durcissement est actif
 5. Copie des `.desktop` vers `/usr/share/applications/` (chmod 644)
 6. Activation des extensions GNOME par défaut système (dconf, `/etc/dconf/db/local.d/`)
 7. `chmod 755` récursif sur les dossiers `/opt/` listés
+
+Enfin la partie interactive (`--phase accounts`) :
+
+8. Prompt pour créer un ou plusieurs comptes locaux (username, mot de passe masqué, changement forcé à la prochaine connexion en option, ajout au groupe `wheel` en option) — pas piloté par `config.json`, pas de mot de passe stocké dans un fichier
 
 (`deploy_bundle.py` et `main.py` restent utilisables séparément si besoin de rejouer une seule étape.)
 

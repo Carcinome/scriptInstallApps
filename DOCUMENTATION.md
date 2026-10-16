@@ -10,15 +10,16 @@ Aucune classe dans ce projet : tout est écrit sous forme de fonctions simples. 
 
 1. [config.py](#configpy)
 2. [rpm_installer.py](#rpm_installerpy)
-3. [accounts.py](#accountspy)
-4. [shortcuts.py](#shortcutspy)
-5. [gnome_extensions.py](#gnome_extensionspy)
-6. [opt_permissions.py](#opt_permissionspy)
-7. [java_setup.py](#java_setuppy)
-8. [password_policy.py](#password_policypy)
-9. [deploy_bundle.py](#deploy_bundlepy)
-10. [install.py](#installpy)
-11. [main.py](#mainpy)
+3. [libreoffice_setup.py](#libreoffice_setuppy)
+4. [accounts.py](#accountspy)
+5. [shortcuts.py](#shortcutspy)
+6. [gnome_extensions.py](#gnome_extensionspy)
+7. [opt_permissions.py](#opt_permissionspy)
+8. [java_setup.py](#java_setuppy)
+9. [password_policy.py](#password_policypy)
+10. [deploy_bundle.py](#deploy_bundlepy)
+11. [install.py](#installpy)
+12. [main.py](#mainpy)
 
 ---
 
@@ -200,6 +201,95 @@ Le bloc `if __name__ == "__main__":` lit le chemin dans `sys.argv[1]` (le premie
 
 **Pourquoi ainsi**
 `subprocess.run(..., capture_output=True, text=True)` plutôt que `os.system()` : on récupère `stdout`/`stderr` en tant que texte pour construire un message d'erreur exploitable, et on évite les problèmes d'injection shell qu'`os.system()` peut introduire si un chemin de fichier contient des caractères spéciaux (`os.system` passe par un shell, `subprocess.run` avec une liste d'arguments non).
+
+---
+
+## libreoffice_setup.py
+
+Ce module installe la suite LibreOffice depuis un dossier local de RPM. Il **réutilise** `rpm_installer.py` (même vérification SHA256, même `dnf install`) et y ajoute un contrôle final. Il peut tourner seul, hors `install.py` et `main.py`, comme `accounts.py`.
+
+### Constantes `DEFAULT_RPM_DIR` et `REQUIRED_PACKAGES`
+
+**Syntaxe**
+```python
+DEFAULT_RPM_DIR: str = "/opt/install/libreoffice"
+REQUIRED_PACKAGES: list[str] = [
+    "libreoffice-core", "libreoffice-writer", "libreoffice-calc", "libreoffice-impress",
+]
+```
+
+**Utilité**
+`DEFAULT_RPM_DIR` est le dossier où le bundle dépose les RPM de LibreOffice (utilisé quand on ne précise aucun dossier). `REQUIRED_PACKAGES` est la liste des paquets qui doivent être présents une fois l'installation terminée : c'est ce que le contrôle final vérifie.
+
+**Erreurs à ne pas faire**
+- Ajouter un paquet à `REQUIRED_PACKAGES` sans l'avoir mis dans le lot téléchargé : le contrôle final échouera à chaque installation, alors que `dnf` aura réussi.
+- Oublier de mettre à jour cette liste si tu changes la composition du lot LibreOffice (ex. retirer Impress) : le contrôle réclamera un paquet qui n'existe plus.
+
+**Pourquoi ainsi**
+On ne contrôle que le cœur de la suite (`core`, `writer`, `calc`, `impress`) plutôt que les 20 paquets du lot : si ces quatre-là sont présents, la suite est utilisable, et la liste reste courte à maintenir.
+
+---
+
+### `verify_libreoffice()`
+
+**Syntaxe**
+```python
+verify_libreoffice() -> None
+```
+
+**Utilité**
+Vérifie que chaque paquet de `REQUIRED_PACKAGES` est bien installé. Lève une `RuntimeError` qui affiche la sortie de `rpm` si l'un d'eux manque.
+
+**Commande système utilisée**
+```bash
+rpm -q libreoffice-core libreoffice-writer libreoffice-calc libreoffice-impress
+```
+`rpm -q` (q pour *query*) interroge la base RPM locale : il affiche la version de chaque paquet installé, et renvoie un code de sortie non nul dès qu'**un seul** est absent. C'est ce code que Python lit via `resultat.returncode`.
+
+**Exemple**
+```python
+verify_libreoffice()
+# Silencieux si tout est installé.
+# RuntimeError: LibreOffice incomplet après installation:
+# libreoffice-impress n'est pas installé       <- si un paquet manque
+```
+
+**Erreurs à ne pas faire**
+- Croire qu'une installation `dnf` réussie suffit à prouver que le lot est complet : un RPM oublié dans le bundle ne fait pas échouer `dnf`, il n'est simplement jamais installé. C'est exactement ce qui est arrivé sur le terrain, et c'est pour ça que ce contrôle existe.
+
+**Pourquoi ainsi**
+`rpm -q` plutôt que chercher l'exécutable `soffice` sur le disque : on interroge la source de vérité (la base RPM), sans dépendre du chemin où l'exécutable est installé.
+
+---
+
+### `install_libreoffice(rpm_dir=DEFAULT_RPM_DIR)`
+
+**Syntaxe**
+```python
+install_libreoffice(rpm_dir: str = "/opt/install/libreoffice") -> None
+```
+
+**Utilité**
+Enchaîne trois étapes : `rpm_installer.verify_checksums(rpm_dir)` (les empreintes SHA256 correspondent), `rpm_installer.install_rpms(...)` (installation `dnf`), puis `verify_libreoffice()` (contrôle final).
+
+**Exemple**
+```python
+install_libreoffice()                          # dossier par défaut
+install_libreoffice("/media/usb/libreoffice")  # autre dossier
+```
+
+En ligne de commande, depuis le dossier du projet :
+```bash
+sudo python3 libreoffice_setup.py [/chemin/vers/dossier_rpm]
+```
+Sans argument, le dossier par défaut est utilisé. Plus d'un argument affiche l'usage et s'arrête.
+
+**Erreurs à ne pas faire**
+- Lancer ce script sur un poste déjà déployé sans essai à blanc préalable (`dnf install --assumeno ...`, voir `INSTALL.md`) : le lot vient de l'ISO 9.6, alors que ces postes ont reçu quelques paquets plus récents. Il faut s'assurer que `dnf` ne propose aucun `Removing` ni `Downgrading`.
+- Le copier seul sur un poste : il importe `rpm_installer.py`, donc les deux fichiers doivent être dans le même dossier.
+
+**Pourquoi ainsi**
+La vérification SHA256 et l'installation sont déléguées à `rpm_installer.py` plutôt que recopiées : un seul endroit à corriger si ce comportement change. Le contrôle `rpm -q` final est la seule logique propre à LibreOffice.
 
 ---
 
@@ -637,57 +727,128 @@ Vider la destination avant de recopier (`shutil.rmtree` puis `shutil.copytree`) 
 
 ## install.py
 
-### `install(archive_path)`
+### `install(archive_path, phase="all")`
 
 **Syntaxe**
 ```python
-install(archive_path: str) -> None
+install(archive_path: str, phase: str = "all") -> None
+# phase : "all", "provision" ou "accounts"
 ```
 
 **Utilité**
-Point d'entrée unique du projet : appelle `deploy_bundle(archive_path)` puis `main()` (importé depuis `main.py`). Évite d'avoir à lancer deux commandes séparées.
+Point d'entrée unique du projet : déploie le bundle (`deploy_bundle(archive_path)`) puis lance `main(phase)` (importé depuis `main.py`). Évite d'avoir à lancer deux commandes séparées. Le paramètre `phase` choisit quelle partie de l'installation tourne (voir `main.py`).
+
+Le déploiement du bundle n'a lieu que pour les phases `"all"` et `"provision"` : la phase `"accounts"` ne touche à aucun fichier du bundle (ni RPM, ni Java, ni raccourcis), donc il est inutile de tout vider et recopier si ça a déjà été fait pendant `"provision"`.
 
 **Exemple**
 ```python
-install("/root/bundle_install.tar.gz")
-# Équivalent à :
-#   sudo python3 deploy_bundle.py /root/bundle_install.tar.gz
-#   sudo python3 main.py
-# ...mais en un seul appel.
+install("/root/bundle_install.tar.gz")                      # tout, comme avant
+install("/root/bundle_install.tar.gz", phase="provision")   # déploiement + partie sans interaction
+install("/root/bundle_install.tar.gz", phase="accounts")    # seulement les comptes
 ```
 
+En ligne de commande :
+```bash
+sudo python3 install.py /root/bundle_install.tar.gz
+sudo python3 install.py /root/bundle_install.tar.gz --phase provision
+sudo python3 install.py /root/bundle_install.tar.gz --phase accounts
+```
+Le bloc `if __name__ == "__main__":` utilise `argparse` (module standard de lecture d'options en ligne de commande) : `bundle_path` est un argument obligatoire, `--phase` est optionnel avec `choices=[...]`, ce qui fait refuser automatiquement toute autre valeur avec un message clair, et `default="all"` garde l'ancien comportement quand on ne précise rien.
+
 **Erreurs à ne pas faire**
-- Importer `main` avant que `deploy_bundle` ait tourné en pensant gagner du temps (ex. paralléliser les deux) : l'import Python (`from main import main as run_install`) n'exécute que les définitions du module, pas de souci à ce niveau — mais l'**appel** `run_install()` doit impérativement se faire après `deploy_bundle(archive_path)`, sinon `main()` lira des fichiers RPM/desktop/java qui n'ont pas encore été placés par le déploiement.
+- Appeler `run_install(phase)` avec un `main()` qui n'accepte pas ce paramètre : `install.py` et `main.py` doivent évoluer ensemble. Une fusion de branches mal résolue a déjà produit exactement cette incohérence (`TypeError: main() takes 0 positional arguments but 1 was given`).
+- Importer `main` avant que `deploy_bundle` ait tourné en pensant gagner du temps (ex. paralléliser les deux) : l'import Python (`from main import main as run_install`) n'exécute que les définitions du module, pas de souci à ce niveau — mais l'**appel** `run_install(phase)` doit impérativement se faire après `deploy_bundle(archive_path)`, sinon `main()` lira des fichiers RPM/desktop/java qui n'ont pas encore été placés par le déploiement.
+- Taper `--phase` avec une valeur inventée (`--phase tout`) : `argparse` s'arrête avec un message d'usage et un code d'erreur, rien n'est lancé.
 
 **Pourquoi ainsi**
-Un alias `from main import main as run_install` plutôt qu'un simple `from main import main` : évite toute ambiguïté de lecture entre la fonction `main()` importée et la fonction `install()` définie dans ce même fichier — surtout utile si quelqu'un lit ce fichier sans avoir `main.py` ouvert à côté.
+Un alias `from main import main as run_install` plutôt qu'un simple `from main import main` : évite toute ambiguïté de lecture entre la fonction `main()` importée et la fonction `install()` définie dans ce même fichier — surtout utile si quelqu'un lit ce fichier sans avoir `main.py` ouvert à côté. `argparse` plutôt que lire `sys.argv` à la main : avec une option nommée et facultative (`--phase`), compter les arguments soi-même devient vite fragile, `argparse` gère l'ordre, les valeurs interdites et le message d'aide (`--help`).
 
 ---
 
 ## main.py
 
-### `main()`
+`main.py` est découpé en trois fonctions : deux « moitiés » (`run_provisioning`, `run_accounts`) et un chef d'orchestre (`main`) qui choisit laquelle lancer.
+
+### `run_provisioning(cfg)`
 
 **Syntaxe**
 ```python
-main() -> None
+run_provisioning(cfg: dict) -> None
 ```
 
 **Utilité**
-L'orchestrateur final : charge `config.json`, puis enchaîne dans l'ordre LibreOffice (lot RPM séparé, en premier, sa propre transaction `dnf`) → RPM habituels → Java → politique de mot de passe → shortcuts → extensions GNOME → permissions `/opt` → comptes (interactif).
+Toute la partie **sans interaction** : elle enchaîne, dans l'ordre, LibreOffice (lot RPM séparé, en premier, sa propre transaction `dnf`) → RPM habituels → Java → politique de mot de passe → raccourcis → extensions GNOME → permissions `/opt`. Elle lit les chemins dans `cfg` (le dict renvoyé par `load_config()`).
+
+**Cas particulier : le profil de durcissement**
+Avant d'assouplir `pwquality.conf`, la fonction lit la variable d'environnement `OL96_HARDENING_PROFILE` :
+```python
+hardening_profile = os.environ.get("OL96_HARDENING_PROFILE", "none")
+if hardening_profile in ("", "none"):
+    password_policy.relax_password_policy()
+```
+- Variable absente, vide ou égale à `none` : l'assouplissement a lieu, comme d'habitude.
+- Variable définie avec un nom de profil (CIS, STIG...) : l'assouplissement est **sauté**, car OpenSCAP a déjà durci `pwquality.conf` et on ne veut pas écraser ce réglage. Un message l'indique à l'écran.
+
+`os.environ.get("NOM", "valeur_par_défaut")` lit une variable d'environnement sans planter si elle n'existe pas : elle renvoie alors la valeur par défaut (ici `"none"`).
+
+**Erreurs à ne pas faire**
+- Changer l'ordre des appels sans réfléchir aux dépendances entre étapes. LibreOffice passe en premier parce que ses RPM viennent de l'ISO 9.6 et collent à l'OS vierge : l'installer après les RPM habituels, qui peuvent mettre à jour certaines bibliothèques, ré-ouvrirait un risque de conflit.
+- Lancer sans `sudo` : chaque sous-fonction vérifie `os.geteuid() != 0` et lève une `PermissionError` dès la première étape concernée (l'échec est rapide et clair, mais autant lancer directement avec `sudo`).
+
+**Pourquoi ainsi**
+Chaque étape est un appel direct à la fonction « chef d'orchestre » du module concerné (`install_libreoffice`, `install_rpms`, `install_java`, `enable_extensions`...), jamais aux fonctions internes de bas niveau : `main.py` n'a pas besoin de connaître le détail de chaque module, seulement son point d'entrée public, ce qui permet de faire évoluer un module sans toucher à `main.py`.
+
+---
+
+### `run_accounts()`
+
+**Syntaxe**
+```python
+run_accounts() -> None
+```
+
+**Utilité**
+La partie **interactive** : tant que l'opérateur répond `o` à « Créer un compte utilisateur ? », elle appelle `accounts.prompt_user_info()` (les questions) puis `accounts.create_user(**infos)` (la création).
+
+**Erreurs à ne pas faire**
+- La lancer sans terminal interactif (script automatique, tâche planifiée) : `input()` attend une saisie qui ne viendra jamais, ou lève une `EOFError`. C'est précisément pour ça que cette partie est séparée de `run_provisioning`.
+
+**Pourquoi ainsi**
+Les comptes ne passent pas par `config.json` : un mot de passe ne doit pas être écrit en clair dans un fichier. Les isoler dans leur propre fonction permet de les lancer à part (`--phase accounts`), par exemple à la console pendant que le reste tourne sans surveillance.
+
+---
+
+### `main(phase="all")`
+
+**Syntaxe**
+```python
+main(phase: str = "all") -> None
+# phase : "all", "provision" ou "accounts"
+```
+
+**Utilité**
+Charge `config.json` puis lance la ou les parties demandées :
+
+| `phase` | `run_provisioning` | `run_accounts` |
+|---|---|---|
+| `"all"` (défaut) | oui | oui |
+| `"provision"` | oui | non |
+| `"accounts"` | non | oui |
 
 **Exemple**
 ```python
-# Lancé directement :
+# Lancé directement (phase "all") :
 #   sudo python3 main.py
 # Ou importé et appelé (comme le fait install.py) :
 from main import main
-main()
+main()                      # tout
+main(phase="provision")     # sans les comptes
+main(phase="accounts")      # seulement les comptes
 ```
 
 **Erreurs à ne pas faire**
-- Modifier l'ordre des appels sans réfléchir aux dépendances implicites entre étapes : par exemple, `password_policy.relax_password_policy()` doit tourner **avant** que les comptes ne changent leur mot de passe eux-mêmes (pas avant `create_user`, qui pose le mot de passe initial via `chpasswd` — celui-là n'est pas soumis à `pwquality` de toute façon — mais avant que l'utilisateur ne se connecte et change son mot de passe forcé).
-- Lancer `main()` sans être root : chaque sous-fonction vérifie individuellement `os.geteuid() != 0` et lèvera une `PermissionError` à la toute première étape concernée (`install_rpms`), donc l'échec sera rapide et clair, mais autant lancer directement avec `sudo` pour ne pas perdre de temps sur un run partiel.
+- Oublier que `phase="all"` est une **valeur par défaut** : si on appelle `main()` sans argument, elle vaut `"all"`. C'est ce qui garde l'ancien comportement pour tout appel existant.
+- Faire accepter un paramètre `phase` à `install.py` sans le faire accepter à `main()` : `TypeError` immédiat.
 
 **Pourquoi ainsi**
-Chaque étape est un appel direct à la fonction "chef d'orchestre" du module concerné (`install_rpms`, `install_java`, `enable_extensions`...), jamais aux fonctions internes de bas niveau : `main.py` n'a pas besoin de connaître le détail d'implémentation de chaque module, seulement son point d'entrée public — c'est ce qui permet de faire évoluer un module (ex. changer complètement la façon dont `gnome_extensions.py` active les extensions) sans toucher à `main.py`.
+Le `if phase in ("all", "provision")` plutôt que deux fonctions `main` séparées : un seul point d'entrée à maintenir, et la valeur par défaut `"all"` garantit que les scripts écrits avant l'arrivée des phases continuent de fonctionner sans modification.
