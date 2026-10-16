@@ -12,7 +12,7 @@
 Le bundle contient **deux lots de RPM séparés**, chacun avec son propre `SHA256SUMS` :
 
 - `libreoffice/` : LibreOffice et tout son jeu de dépendances (`--alldeps`), pris **depuis l'ISO d'installation**.
-- `rpms/` : le reste (wireshark, jq, xterm, inotify-tools, gettext, java headless), pris depuis les dépôts en ligne.
+- `rpms/` : le reste (wireshark, jq, xterm, inotify-tools, gettext, java headless), aussi en `--alldeps`, pris depuis l'ISO sauf `inotify-tools` qui vient du dépôt EPEL.
 
 ### 1a. Lot LibreOffice (depuis l'ISO, avec `--alldeps`)
 
@@ -52,15 +52,31 @@ sha256sum *.rpm | sudo tee SHA256SUMS > /dev/null
 sudo dnf install --assumeno --disablerepo='*' /tmp/newbundle/libreoffice/*.rpm
 ```
 
-### 1b. Lot RPM habituel (depuis les dépôts en ligne, sans `--alldeps`)
+### 1b. Lot RPM habituel (`--alldeps`, depuis l'ISO + EPEL seul)
 
-Télécharger les RPM + dépendances réellement nécessaires (jamais `--alldeps` ici, car ce lot vient des dépôts en ligne) :
+Wireshark, jq, xterm, gettext et java headless sont tous sur l'ISO 9.6. Seul `inotify-tools` n'y est pas : il vient d'EPEL. Pour que `--alldeps` reste sûr, on désactive **tous les dépôts en ligne sauf EPEL** : les dépendances sont alors prises sur l'ISO (versions 9.6), et seul `inotify-tools` (et sa bibliothèque) vient d'EPEL.
+
+D'abord, repérer le nom exact du dépôt EPEL sur la VM :
 
 ```bash
-sudo dnf download --resolve --destdir=/tmp/newbundle/rpms -x "oraclelinux-release*" \
+dnf repolist --all | grep -i epel
+```
+
+Puis (en remplaçant `ol9_developer_EPEL` par le nom affiché ci-dessus) :
+
+```bash
+sudo dnf download --resolve --alldeps --disablerepo='*' \
+  --enablerepo='iso-*' --enablerepo=ol9_developer_EPEL \
+  --destdir=/tmp/newbundle/rpms -x "oraclelinux-release*" \
   wireshark jq xterm inotify-tools gettext java-1.8.0-openjdk-headless
 cd /tmp/newbundle/rpms
-sha256sum *.rpm > SHA256SUMS
+sha256sum *.rpm | sudo tee SHA256SUMS > /dev/null
+```
+
+**Vérification avant d'expédier** (sur la VM A vierge) : essai à blanc, aucune ligne `Removing` ni `Downgrading` attendue.
+
+```bash
+sudo dnf install --assumeno --disablerepo='*' /tmp/newbundle/rpms/*.rpm
 ```
 
 ### 1c. Assembler et archiver
@@ -177,7 +193,7 @@ dconf read /org/gnome/shell/enabled-extensions
 
 - `sudo cmd > fichier` : la redirection `>` n'est **pas** exécutée par sudo, elle s'exécute avec les droits du shell courant. Utiliser `cmd | sudo tee fichier` à la place.
 - `--allowerasing` peut faire proposer à dnf de désinstaller des paquets protégés (`dnf`, `yum`) si le lot de RPM contient des doublons de composants système — signe qu'il faut nettoyer le lot, pas forcer le flag.
-- `dnf download --alldeps` ramène des dépendances déjà satisfaites en dernière version du dépôt distant (ex. `oraclelinux-release` qui saute de 9.6 à 9.7/9.8). Avec les dépôts en ligne, toujours `--resolve` seul, avec `-x "oraclelinux-release*"` en filet de sécurité. `--alldeps` n'est sûr que si le dépôt est l'ISO 9.6 elle-même (lot LibreOffice).
+- `dnf download --alldeps` ramène des dépendances déjà satisfaites en dernière version du dépôt distant (ex. `oraclelinux-release` qui saute de 9.6 à 9.7/9.8). `--alldeps` n'est sûr que si les dépendances viennent de l'ISO 9.6 elle-même : c'est pourquoi les deux lots sont téléchargés avec les dépôts en ligne `ol9_*` désactivés (`--disablerepo='*'`), seul EPEL restant actif pour `inotify-tools`. Garder `-x "oraclelinux-release*"` en filet de sécurité.
 - Un paquet oublié dans le bundle ne se voit pas à l'installation (tout passe) mais sur le terrain. Avant d'expédier, relire la liste des paquets demandés et vérifier avec `rpm -q` sur une VM vierge.
 - Ne jamais construire/extraire une arborescence avec des liens symboliques (JDK, etc.) directement sur un partage `/mnt/hgfs/...` : ces partages VMware ne supportent pas les symlinks.
 - Penser impérativement à faire un sudo chmod 644 sur le raccourci applicatif dans `/usr/share/application/*.desktop`.
