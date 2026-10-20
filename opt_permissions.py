@@ -16,10 +16,15 @@ def set_opt_permissions(app_dir):
     os.chmod(app_dir, 0o755)
 
     for racine, dossiers, fichiers in os.walk(app_dir):
-        for nom in dossiers:
-            os.chmod(os.path.join(racine, nom), 0o755)
-        for nom in fichiers:
-            os.chmod(os.path.join(racine, nom), 0o755)
+        for nom in dossiers + fichiers:
+            chemin = os.path.join(racine, nom)
+            # os.chmod follows symbolic links and would change the permissions of the target,
+            # os.chmod suit les liens symboliques et changerait les droits de la cible,
+            # which could be outside the app folder: we skip the links themselves.
+            # qui pourrait être hors du dossier de l'appli : on saute les liens eux-mêmes.
+            if os.path.islink(chemin):
+                continue
+            os.chmod(chemin, 0o755)
 
 
 if __name__ == "__main__":

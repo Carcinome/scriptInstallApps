@@ -27,9 +27,16 @@ def copy_java(java_src_dir, version_dirname, install_root="/opt/java"):
     os.makedirs(install_root, exist_ok=True)
     dest = os.path.join(install_root, version_dirname)
 
-    # dirs_exist_ok=True: lets the script be rerun without crashing if /opt/java/<version> already exists.
-    # dirs_exist_ok=True : relance possible du script sans planter si /opt/java/<version> existe déjà.
-    shutil.copytree(src, dest, dirs_exist_ok=True)
+    # We start from an empty folder, like deploy_bundle does: it keeps the script rerunnable,
+    # On repart d'un dossier vide, comme le fait deploy_bundle : le script reste relançable,
+    # and avoids a crash when recreating a symlink where an older run left a real file.
+    # et on évite un plantage en recréant un lien là où une ancienne passe a laissé un vrai fichier.
+    if os.path.isdir(dest):
+        shutil.rmtree(dest)
+
+    # symlinks=True keeps the JDK's symbolic links as links instead of copying their targets.
+    # symlinks=True garde les liens symboliques du JDK comme des liens au lieu de copier leurs cibles.
+    shutil.copytree(src, dest, symlinks=True)
 
     return dest
 

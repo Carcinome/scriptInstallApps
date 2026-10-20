@@ -4,6 +4,13 @@
   "java_src_dir": "/opt/install/java",
   "java_version": "8.0.392-tem",
   "desktop_src_dir": "/opt/install/desktop",
-  "gnome_extensions": ["exemple@exemple.com"],
+  "gnome_extensions": [
+    "desktop-icons@gnome-shell-extensions.gcampax.github.com",
+    "launch-new-instance@gnome-shell-extensions.gcampax.github.com",
+    "background-logo@fedorahosted.org",
+    "places-menu@gnome-shell-extensions.gcampax.github.com",
+    "apps-menu@gnome-shell-extensions.gcampax.github.com",
+    "window-list@gnome-shell-extensions.gcampax.github.com"
+  ],
   "opt_app_dirs": ["/opt/install"]
 }

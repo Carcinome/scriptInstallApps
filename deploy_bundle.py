@@ -41,12 +41,17 @@ def deploy_bundle(archive_path):
         # "r:*" laisse tarfile deviner tout seul si c'est compressé (gz, bz2...) ou pas,
         # regardless of what the file extension claims.
         # peu importe ce que dit l'extension du fichier.
-        # No "filter" parameter here: it only exists from Python 3.12 onward,
-        # Pas de paramètre "filter" ici : il n'existe qu'à partir de Python 3.12,
-        # and OL9.6 still runs python3.9 by default - it would crash otherwise.
-        # et OL9.6 tourne encore en python3.9 par défaut - ça planterait sinon.
+        # The "data" filter refuses absolute paths, ".." paths and links pointing outside the
+        # Le filtre "data" refuse les chemins absolus, les chemins ".." et les liens qui sortent du
+        # destination folder (CVE-2007-4559). Python 3.9 on OL9 has it (backported), but older
+        # dossier de destination (CVE-2007-4559). Le Python 3.9 d'OL9 l'a (rétroporté), mais des
+        # builds don't: hasattr() checks, so we never pass a parameter Python doesn't know.
+        # versions plus anciennes non : hasattr() vérifie, on ne passe jamais un paramètre inconnu.
         with tarfile.open(archive_path, "r:*") as archive:
-            archive.extractall(work_dir)
+            if hasattr(tarfile, "data_filter"):
+                archive.extractall(work_dir, filter="data")
+            else:
+                archive.extractall(work_dir)
 
         for nom_dossier, destination in DESTINATIONS.items():
             source = os.path.join(work_dir, "opt", "install", nom_dossier)
@@ -63,7 +68,11 @@ def deploy_bundle(archive_path):
             # une fois avec des RPM d'une vieille version qui traînaient).
             if os.path.isdir(destination):
                 shutil.rmtree(destination)
-            shutil.copytree(source, destination)
+            # symlinks=True recreates symbolic links as links (the JDK has two), instead of
+            # symlinks=True recrée les liens symboliques comme des liens (le JDK en a deux), au lieu
+            # copying the content they point to.
+            # de copier le contenu pointé.
+            shutil.copytree(source, destination, symlinks=True)
 
             print(f"opt/install/{nom_dossier}/ -> {destination}")
     finally:

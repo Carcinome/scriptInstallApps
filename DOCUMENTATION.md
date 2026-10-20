@@ -164,6 +164,39 @@ Grouper toutes les erreurs en une seule exception (plutôt que `raise` dès le p
 
 ---
 
+### `filter_older_than_installed(rpm_files)`
+
+**Syntaxe**
+```python
+filter_older_than_installed(rpm_files: list[str]) -> tuple[list[str], list[str]]
+# -> (fichiers à installer, descriptions des fichiers ignorés)
+```
+
+**Utilité**
+Compare chaque RPM de la liste à ce qui est **déjà installé** sur la machine, et écarte ceux qui sont **strictement plus anciens** que la version installée (même nom, même architecture). Les écarter évite à `dnf` une rétrogradation, qu'il refuse.
+
+**Pourquoi elle existe.** Un poste déployé avec l'ancien bundle a reçu des paquets plus récents que ceux de l'ISO OL9.6 (par exemple `tzdata-java` 2026b). Le lot LibreOffice, pris sur l'ISO, contient `tzdata-java` 2025a. `dnf` répondait alors `cannot install both tzdata-java-2025a from @commandline and tzdata-java-2026b from @System` et abandonnait toute la transaction. Avec ce filtre, ce fichier est ignoré, car la version installée satisfait déjà les besoins.
+
+**Exemple**
+```python
+a_installer, ignores = filter_older_than_installed(rpm_files)
+# ignores -> ["tzdata-java.noarch 2025a-1.el9 (installé : 2026b-1.el9)"]
+```
+
+**Comment elle compare.**
+- Elle utilise le module Python `rpm` (livré avec `dnf`) : `rpm.TransactionSet().dbMatch()` liste les paquets installés, `hdrFromFdno` lit l'en-tête d'un fichier RPM, et `rpm.labelCompare` compare deux versions avec les règles exactes de RPM (`2026b` contre `2025a`, l'epoch avant la version, etc.).
+- La clé de comparaison est le couple `(nom, architecture)` : `jq.i686` n'est jamais comparé à `jq.x86_64`.
+- Version **identique ou plus récente**, ou paquet **non installé** : le fichier est gardé. Sur un poste vierge, rien n'est donc jamais ignoré.
+
+**Erreurs à ne pas faire**
+- Croire que ça résout tout : si un autre paquet du lot exige **exactement** la version qu'on vient d'ignorer (`Requires: X = 1.0`), `dnf` signalera une erreur de dépendance. Dans ce cas il n'a rien installé non plus, et il faudra regarder le message.
+- Supprimer l'`import rpm` de l'intérieur de la fonction : il est là exprès. Le module n'existe que sur un système RPM, et ce `try/except ImportError` permet au reste du script d'être chargé (et testé) ailleurs. S'il manque, la fonction prévient, garde **tout** et laisse `dnf` décider.
+
+**Pourquoi ainsi**
+En cas d'en-tête illisible (`rpm.error`), on garde le fichier plutôt que de planter : dans le doute, c'est `dnf` qui tranche, et son refus est propre (aucune installation partielle).
+
+---
+
 ### `install_rpms(rpm_files)`
 
 **Syntaxe**
@@ -172,7 +205,7 @@ install_rpms(rpm_files: list[str]) -> str
 ```
 
 **Utilité**
-Installe la liste de RPM donnée via `dnf`. Lève `PermissionError` si pas root, `RuntimeError` si `dnf` échoue.
+Installe la liste de RPM donnée via `dnf`, après avoir écarté (via `filter_older_than_installed`) ceux qui rétrograderaient un paquet installé, en affichant une ligne « Ignoré, version plus récente déjà installée : ... » par fichier écarté. Si tout est déjà présent en version identique ou plus récente, elle ne lance pas `dnf` et renvoie une chaîne vide. Lève `PermissionError` si pas root, `RuntimeError` si `dnf` échoue.
 
 **Commande système utilisée**
 ```bash
@@ -543,6 +576,8 @@ set_opt_permissions("/opt/monapp")
 - Croire que 755 sur un fichier de données (pas un binaire) pose un souci de sécurité : ça rend le fichier "exécutable" au sens des bits Unix, ce qui est inoffensif pour un fichier texte (le bit x est juste ignoré s'il n'y a rien à exécuter), mais reste inhabituel et peut fausser des heuristiques d'outils tiers qui se fient au bit exécutable pour deviner le type de fichier.
 
 **Pourquoi ainsi**
+Les liens symboliques sont **sautés** (`os.path.islink`) : `os.chmod` suit les liens et modifierait les droits de la cible, qui peut se trouver hors du dossier de l'appli (un lien `x -> /etc/passwd` ferait passer ce fichier en 755).
+
 `os.walk` plutôt que `pathlib.Path.rglob("*")` : les deux fonctionnent, mais `os.walk` donne directement `dossiers` et `fichiers` séparés à chaque niveau, ce qui évite d'avoir à tester `.is_dir()`/`.is_file()` sur chaque élément — plus direct pour ce cas d'usage précis (poser un chmod différent... ici identique, mais la structure reste plus lisible).
 
 ---
@@ -568,10 +603,11 @@ java_home = copy_java("/opt/install/java", "8.0.392-tem")
 
 **Erreurs à ne pas faire**
 - Construire ce dossier source sur un partage réseau qui ne supporte pas les liens symboliques (ex. un partage VMware `hgfs`) : un JDK contient des symlinks (`libjsig.so`, des pages de man localisées...), et `shutil.copytree` échouera à les recréer si le système de fichiers source ou destination ne les supporte pas. Voir l'incident documenté dans `INSTALL.md` — toujours construire/extraire ce genre d'arborescence sur un système de fichiers Linux natif.
-- Relancer `copy_java` en pensant qu'elle écrasera proprement une installation précédente corrompue : `dirs_exist_ok=True` **fusionne** avec ce qui existe déjà (les fichiers du même nom sont écrasés, mais les fichiers en trop qui ne sont plus dans la source ne sont **pas** supprimés). Si tu changes de version de JDK sans changer `version_dirname`, il faut supprimer `install_root/version_dirname` toi-même avant de relancer.
+- Relancer `copy_java` pendant qu'une appli tourne avec ce JDK : la fonction **supprime** `install_root/version_dirname` avant de le recopier, donc les fichiers du JDK disparaissent un instant sous une appli en cours d'exécution. À faire hors production.
+- Oublier `symlinks=True` : sans lui, `shutil.copytree` **suit** chaque lien symbolique et copie le contenu pointé (c'est ce qui avait transformé `libjsig.so` en vrai fichier et `man/ja` en vrai dossier). Avec `symlinks=True`, les deux liens du JDK restent des liens, comme dans l'archive.
 
 **Pourquoi ainsi**
-`dirs_exist_ok=True` (plutôt que planter si le dossier existe déjà) permet de relancer `main.py` sur une machine déjà partiellement provisionnée sans avoir à nettoyer `/opt/java` à la main entre deux essais.
+On supprime d'abord le dossier de destination (`shutil.rmtree`), comme le fait `deploy_bundle` : le script reste relançable sans nettoyage manuel, et on évite que `copytree(..., symlinks=True)` plante en recréant un lien là où une ancienne passe avait laissé un vrai fichier (`FileExistsError`).
 
 ---
 
@@ -721,7 +757,11 @@ deploy_bundle("/root/bundle_install.tar.gz")
 - Donner une archive dont la structure interne ne commence pas par `opt/install/` (ex. une archive créée avec `tar czf bundle.tar.gz rpms/ desktop/ java/` sans le préfixe `opt/install/`) : la fonction lèvera un `FileNotFoundError` explicite plutôt que d'échouer silencieusement, mais il faut reconstruire l'archive avec le bon préfixe (voir `INSTALL.md`, section construction du bundle).
 
 **Pourquoi ainsi**
-Vider la destination avant de recopier (`shutil.rmtree` puis `shutil.copytree`) plutôt que de fusionner (`dirs_exist_ok=True` comme dans `java_setup.copy_java`) : ici, contrairement au JDK, on veut activement **empêcher** un mélange entre un ancien bundle RPM et un nouveau — c'est la leçon tirée de l'incident où un vieux lot de 518 RPM traînait à côté d'un nouveau lot propre et provoquait des conflits `dnf` à répétition.
+Vider la destination avant de recopier (`shutil.rmtree` puis `shutil.copytree`) plutôt que de fusionner (`dirs_exist_ok=True`) : on veut activement **empêcher** un mélange entre un ancien bundle RPM et un nouveau — c'est la leçon tirée de l'incident où un vieux lot de 518 RPM traînait à côté d'un nouveau lot propre et provoquait des conflits `dnf` à répétition.
+
+**Deux précautions à l'extraction et à la copie.**
+- `extractall(work_dir, filter="data")` n'est utilisé que si `hasattr(tarfile, "data_filter")` : le Python 3.9 d'OL9 a ce filtre (rétroporté), qui refuse les chemins absolus, les chemins `..` et les liens sortant du dossier (CVE-2007-4559), mais une version plus ancienne ne l'a pas et planterait si on lui passait un paramètre inconnu. `hasattr` évite aussi l'avertissement `RuntimeWarning`.
+- `copytree(source, destination, symlinks=True)` garde les liens symboliques comme des liens.
 
 ---
 

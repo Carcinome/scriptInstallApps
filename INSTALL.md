@@ -67,7 +67,7 @@ Puis (en remplaçant `ol9_developer_EPEL` par le nom affiché ci-dessus) :
 ```bash
 sudo dnf download --resolve --alldeps --disablerepo='*' \
   --enablerepo='iso-*' --enablerepo=ol9_developer_EPEL \
-  --destdir=/tmp/newbundle/rpms -x "oraclelinux-release*" \
+  --destdir=/tmp/newbundle/rpms \
   wireshark jq xterm inotify-tools gettext java-1.8.0-openjdk-headless
 cd /tmp/newbundle/rpms
 sha256sum *.rpm | sudo tee SHA256SUMS > /dev/null
@@ -177,7 +177,7 @@ Copier le dossier `libreoffice/` (RPM + `SHA256SUMS`), `libreoffice_setup.py` et
 sudo python3 libreoffice_setup.py /chemin/vers/libreoffice
 ```
 
-Ça vérifie les empreintes, lance l'installation `dnf`, puis contrôle avec `rpm -q` que `libreoffice-core`, `-writer`, `-calc` et `-impress` sont bien présents, comme le fait `main.py`. Sans argument, le dossier par défaut est `/opt/install/libreoffice`. (`rpm_installer.py <dossier>` fait la même chose pour n'importe quel autre lot de RPM, mais sans le contrôle final.) Sur un poste déjà déployé, faire d'abord un essai à blanc sur un seul poste (`sudo dnf install --assumeno --disablerepo='*' /chemin/vers/libreoffice/*.rpm`) : le lot vient de l'ISO 9.6 alors que ces postes ont reçu quelques paquets plus récents, il faut s'assurer que `dnf` ne propose aucun `Removing` ni `Downgrading`.
+Ça vérifie les empreintes, lance l'installation `dnf`, puis contrôle avec `rpm -q` que `libreoffice-core`, `-writer`, `-calc` et `-impress` sont bien présents, comme le fait `main.py`. Sans argument, le dossier par défaut est `/opt/install/libreoffice`. (`rpm_installer.py <dossier>` fait la même chose pour n'importe quel autre lot de RPM, mais sans le contrôle final.) Si le poste a reçu avec l'ancien bundle des paquets plus récents que l'ISO (par exemple `tzdata-java` 2026b contre 2025a dans le lot), `install_rpms` ignore automatiquement les fichiers du lot qui rétrograderaient un paquet installé, et affiche une ligne « Ignoré, version plus récente déjà installée ». Cela exige le module Python `rpm`, présent par défaut avec `dnf` sur OL9. Sur un poste déjà déployé, faire quand même d'abord un essai à blanc sur un seul poste (`sudo dnf install --assumeno --disablerepo='*' /chemin/vers/libreoffice/*.rpm`) : le lot vient de l'ISO 9.6 alors que ces postes ont reçu quelques paquets plus récents, il faut s'assurer que `dnf` ne propose aucun `Removing` ni `Downgrading`.
 
 ## 5. Vérifications post-install
 
@@ -193,7 +193,7 @@ dconf read /org/gnome/shell/enabled-extensions
 
 - `sudo cmd > fichier` : la redirection `>` n'est **pas** exécutée par sudo, elle s'exécute avec les droits du shell courant. Utiliser `cmd | sudo tee fichier` à la place.
 - `--allowerasing` peut faire proposer à dnf de désinstaller des paquets protégés (`dnf`, `yum`) si le lot de RPM contient des doublons de composants système — signe qu'il faut nettoyer le lot, pas forcer le flag.
-- `dnf download --alldeps` ramène des dépendances déjà satisfaites en dernière version du dépôt distant (ex. `oraclelinux-release` qui saute de 9.6 à 9.7/9.8). `--alldeps` n'est sûr que si les dépendances viennent de l'ISO 9.6 elle-même : c'est pourquoi les deux lots sont téléchargés avec les dépôts en ligne `ol9_*` désactivés (`--disablerepo='*'`), seul EPEL restant actif pour `inotify-tools`. Garder `-x "oraclelinux-release*"` en filet de sécurité.
+- `dnf download --alldeps` ramène des dépendances déjà satisfaites en dernière version du dépôt distant (ex. `oraclelinux-release` qui saute de 9.6 à 9.7/9.8). `--alldeps` n'est sûr que si les dépendances viennent de l'ISO 9.6 elle-même : c'est pourquoi les deux lots sont téléchargés avec les dépôts en ligne `ol9_*` désactivés (`--disablerepo='*'`), seul EPEL restant actif pour `inotify-tools`. Ne **pas** ajouter `-x "oraclelinux-release*"` avec `--alldeps` : la chaîne `glibc` → `basesystem` → `setup` → `system-release` exige ce paquet, et l'exclure fait échouer la résolution (« filtered out by exclude filtering »). Ce n'est pas nécessaire : l'ISO et EPEL ne fournissent que `oraclelinux-release` 9.6, la même version que la cible.
 - Un paquet oublié dans le bundle ne se voit pas à l'installation (tout passe) mais sur le terrain. Avant d'expédier, relire la liste des paquets demandés et vérifier avec `rpm -q` sur une VM vierge.
 - Ne jamais construire/extraire une arborescence avec des liens symboliques (JDK, etc.) directement sur un partage `/mnt/hgfs/...` : ces partages VMware ne supportent pas les symlinks.
 - Penser impérativement à faire un sudo chmod 644 sur le raccourci applicatif dans `/usr/share/application/*.desktop`.

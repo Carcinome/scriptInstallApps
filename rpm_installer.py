@@ -116,9 +116,87 @@ def verify_checksums(rpm_dir, sums_file=None):
     return fichiers
 
 
+def filter_older_than_installed(rpm_files):
+    # The "rpm" Python module ships with dnf on OL9: it reads RPM headers and the database
+    # Le module Python "rpm" est livré avec dnf sur OL9 : il lit les en-têtes RPM et la base
+    # of installed packages, and applies RPM's exact version-comparison rules.
+    # des paquets installés, et applique les règles exactes de comparaison de versions RPM.
+    try:
+        import rpm
+    except ImportError:
+        # Without it we cannot compare: keep everything, dnf will still refuse an impossible transaction.
+        # Sans lui on ne peut pas comparer : on garde tout, dnf refusera quand même une transaction impossible.
+        print("Module Python 'rpm' absent : comparaison des versions ignorée.")
+        return rpm_files, []
+
+    ts = rpm.TransactionSet()
+    # We only read headers, so we skip signature checks (they would need the GPG keys).
+    # On ne fait que lire des en-têtes, donc on saute les signatures (il faudrait les clés GPG).
+    ts.setVSFlags(rpm._RPMVSF_NOSIGNATURES | rpm._RPMVSF_NODIGESTS)
+
+    # Installed packages: {(name, arch): (epoch, version, release)}, keeping the highest version.
+    # Paquets installés : {(nom, arch): (epoch, version, release)}, en gardant la plus haute version.
+    installed = {}
+    for header in ts.dbMatch():
+        cle = (header[rpm.RPMTAG_NAME], header[rpm.RPMTAG_ARCH])
+        evr = (
+            str(header[rpm.RPMTAG_EPOCHNUM] or 0),
+            header[rpm.RPMTAG_VERSION],
+            header[rpm.RPMTAG_RELEASE],
+        )
+        if cle not in installed or rpm.labelCompare(evr, installed[cle]) > 0:
+            installed[cle] = evr
+
+    garder = []
+    ignores = []
+    for chemin in rpm_files:
+        try:
+            with open(chemin, "rb") as f:
+                header = ts.hdrFromFdno(f.fileno())
+        except rpm.error:
+            # Unreadable header: when in doubt, let dnf decide.
+            # En-tête illisible : dans le doute, on laisse dnf trancher.
+            garder.append(chemin)
+            continue
+
+        cle = (header[rpm.RPMTAG_NAME], header[rpm.RPMTAG_ARCH])
+        evr = (
+            str(header[rpm.RPMTAG_EPOCHNUM] or 0),
+            header[rpm.RPMTAG_VERSION],
+            header[rpm.RPMTAG_RELEASE],
+        )
+
+        # Strictly older than what is installed: installing it would be a downgrade.
+        # Strictement plus ancien que l'installé : l'installer reviendrait à rétrograder.
+        # Equal or newer, or not installed at all: we keep it.
+        # Identique, plus récent, ou pas installé du tout : on le garde.
+        if cle in installed and rpm.labelCompare(evr, installed[cle]) < 0:
+            ignores.append(
+                f"{cle[0]}.{cle[1]} {evr[1]}-{evr[2]} "
+                f"(installé : {installed[cle][1]}-{installed[cle][2]})"
+            )
+        else:
+            garder.append(chemin)
+
+    return garder, ignores
+
+
 def install_rpms(rpm_files):
     if os.geteuid() != 0:
         raise PermissionError("Installation des RPM: il faut être root (sudo).")
+
+    # Drop the files that would downgrade an already-installed package (typical on machines
+    # On écarte les fichiers qui rétrograderaient un paquet déjà installé (cas typique des postes
+    # deployed with an older bundle that came with newer packages than the OL9.6 ISO).
+    # déployés avec un ancien bundle, dont les paquets sont plus récents que ceux de l'ISO OL9.6).
+    rpm_files, ignores = filter_older_than_installed(rpm_files)
+    for ligne in ignores:
+        print("Ignoré, version plus récente déjà installée : " + ligne)
+
+    if not rpm_files:
+        # Everything was already there in an equal or newer version: nothing left for dnf to do.
+        # Tout était déjà là en version identique ou plus récente : il ne reste rien à faire pour dnf.
+        return ""
 
     # dnf knows how to resolve dependencies between several given local files
     # dnf sait résoudre les dépendances entre plusieurs fichiers locaux donnés
@@ -151,4 +229,4 @@ if __name__ == "__main__":
 
     rpm_files = verify_checksums(sys.argv[1])
     install_rpms(rpm_files)
-    print(f"{len(rpm_files)} RPM installés depuis {sys.argv[1]}.")
+    print(f"Installation terminée depuis {sys.argv[1]}.")
